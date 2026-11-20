@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运营商资费监控 · 数据一览</title>
+<style>
+:root{
+  --bg:#f4f6fa; --card:#ffffff; --card2:#fafbfc; --text:#1f2937; --muted:#6b7280;
+  --border:#e5e7eb; --border2:#f0f1f4; --shadow:0 2px 10px rgba(16,24,40,.05);
+  --blue:#2563eb; --blue-soft:#eff6ff; --up:#e11d2a; --down:#0f9d6e; --warn:#b45309;
+  --mobile:#0f9d6e; --unicom:#e11d2a; --telecom:#2f6fdb; --gb:#7c3aed;
+}
+body.dark{
+  --bg:#0f172a; --card:#1e293b; --card2:#172033; --text:#e5e7eb; --muted:#94a3b8;
+  --border:#334155; --border2:#2a3648; --shadow:0 2px 12px rgba(0,0,0,.25);
+  --blue:#60a5fa; --blue-soft:#1e3a5f; --warn:#fbbf24;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.app{max-width:1320px;margin:0 auto;padding:22px 28px 40px}
+button,select,input{font-family:inherit}
+button{cursor:pointer}
+
+/* 顶部 */
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+.brand{display:flex;align-items:center;gap:11px}
+.logo{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#1e7fef,#0f9d6e);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;box-shadow:0 4px 12px rgba(31,127,239,.25);flex:none}
+.brand h1{font-size:18px;margin:0;font-weight:700}
+.brand .sub{color:var(--muted);font-size:12px;margin-top:2px}
+.tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--border);background:var(--card);color:var(--text);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;transition:.15s;white-space:nowrap}
+.btn:hover{border-color:var(--blue);color:var(--blue)}
+.btn.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+.tag-demo{font-size:11.5px;color:var(--warn);background:transparent;border:1px dashed var(--warn);padding:5px 9px;border-radius:7px;white-space:nowrap}
+.sync{color:var(--muted);font-size:11.5px;white-space:nowrap}
+
+/* 导航 */
+.mainnav{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto}
+.nav-btn{border:0;background:transparent;color:var(--muted);padding:11px 17px;font-size:13.5px;font-weight:600;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+.nav-btn:hover{color:var(--text)}
+.nav-btn.on{color:var(--blue);border-bottom-color:var(--blue)}
+
+/* 通用卡片 */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 17px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.card-title{font-size:14.5px;font-weight:700;margin:0;display:flex;align-items:center;gap:8px}
+.card-desc{font-size:11.5px;color:var(--muted);margin-top:2px}
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--blue-soft);color:var(--blue)}
+.section{margin-bottom:16px}
+
+/* 总览 */
+.hero{background:linear-gradient(120deg,#1e7fef,#0f9d6e);color:#fff;border-radius:14px;padding:22px 24px;margin-bottom:16px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-50px;top:-80px;width:260px;height:260px;border-radius:50%;background:rgba(255,255,255,.09)}
+.hero h2{margin:0;font-size:20px;font-weight:750}
+.hero p{margin:6px 0 0;font-size:12.5px;opacity:.88}
+.hero-stats{display:flex;gap:34px;margin-top:18px;flex-wrap:wrap;position:relative}
+.hero-stats b{display:block;font-size:23px;font-weight:750;line-height:1.2}
+.hero-stats span{font-size:11.5px;opacity:.84}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 17px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,var(--blue))}
+.kpi-label{color:var(--muted);font-size:12px}
+.kpi-val{font-size:26px;font-weight:750;margin:6px 0 2px;line-height:1.1;letter-spacing:-.4px}
+.kpi-foot{color:var(--muted);font-size:11px}
+.overview-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+.dist{padding:16px 18px}
+.dist-row{display:grid;grid-template-columns:82px 1fr 44px;align-items:center;gap:10px;margin-bottom:13px}
+.dist-row:last-child{margin-bottom:0}
+.dist-name{font-size:12px;font-weight:600;color:var(--muted)}
+.dist-track{height:9px;background:var(--border2);border-radius:99px;overflow:hidden}
+.dist-fill{height:100%;border-radius:99px;background:var(--blue)}
+.dist-val{text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.prov-list{padding:8px 18px 14px}
+.prov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px}
+.prov-item:last-child{border-bottom:0}
+.prov-item b{font-variant-numeric:tabular-nums}
+.prov-more{text-align:center;color:var(--blue);font-size:12px;padding:10px;cursor:pointer;font-weight:600}
+
+/* 筛选栏 */
+.filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);margin-bottom:14px}
+select,input[type=text]{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none}
+select:focus,input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.search{position:relative;display:flex;align-items:center}
+.search input{padding-left:29px;width:200px}
+.search::before{content:"⌕";position:absolute;left:10px;color:var(--muted);font-size:16px;pointer-events:none}
+.btn-prov{display:flex;align-items:center;gap:6px}
+.sep{width:1px;height:22px;background:var(--border)}
+.filter-info{margin-left:auto;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:10px}
+.link-btn{border:0;background:transparent;color:var(--blue);font-size:12px;font-weight:600;padding:4px}
+
+/* 表格 */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th{text-align:left;font-size:11.5px;font-weight:600;color:var(--muted);padding:10px 14px;background:var(--card2);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--border2);font-size:12.5px;vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--card2)}
+.op-badge{display:inline-flex;align-items:center;gap:5px;background:var(--card2);color:var(--oc);padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.op-badge i{width:6px;height:6px;border-radius:50%;background:var(--oc)}
+.name{font-weight:650}
+.type-tag{color:var(--muted);background:var(--card2);padding:2px 7px;border-radius:5px;font-size:11px;white-space:nowrap}
+.owner-tag{padding:2px 7px;border-radius:5px;font-size:11px;white-space:nowrap;font-weight:600}
+.owner-tag.person{background:#ecfdf5;color:#047857}
+.owner-tag.biz{background:#fff7ed;color:#c2410c}
+.price{font-weight:750;font-size:13.5px;font-variant-numeric:tabular-nums}
+.price.zero{color:var(--down)}
+.muted{color:var(--muted)}
+.chg{font-weight:700;font-size:11.5px;white-space:nowrap}
+.chg.new{color:var(--blue)} .chg.off{color:var(--muted)} .chg.mod{color:var(--warn)}
+.star{border:0;background:transparent;color:#cbd5e1;font-size:16px;padding:2px 5px}
+.star.on{color:#f59e0b}
+.detail{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:6px;padding:4px 9px;font-size:11.5px}
+.detail:hover{color:var(--blue);border-color:var(--blue)}
+.empty{padding:40px;text-align:center;color:var(--muted);font-size:13px}
+.pager{display:flex;justify-content:space-between;align-items:center;padding:12px 17px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);gap:12px;flex-wrap:wrap}
+.pager-btns{display:flex;gap:6px}
+.pager-btns button{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px}
+.pager-btns button:disabled{opacity:.4;cursor:not-allowed}
+
+/* 时间线 */
+.timeline{padding:8px 18px 16px;max-height:560px;overflow-y:auto}
+.tl-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px dashed var(--border)}
+.tl-item:last-child{border-bottom:0}
+.tl-dot{width:9px;height:9px;border-radius:50%;background:var(--oc);margin-top:5px;flex:none;box-shadow:0 0 0 4px var(--card2)}
+.tl-body{flex:1;min-width:0}
+.tl-title{font-size:13px;font-weight:650}
+.tl-meta{color:var(--muted);font-size:11.5px;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.tl-change{font-size:12px;margin-top:5px}
+
+/* 关于 */
+.about{padding:18px 20px;font-size:13px;color:var(--muted);line-height:1.9}
+.about h3{color:var(--text);font-size:14px;margin:16px 0 6px}
+.about h3:first-child{margin-top:0}
+.about code{background:var(--card2);padding:1px 5px;border-radius:4px;font-size:12px;color:var(--blue)}
+.about b{color:var(--text)}
+.notice{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:16px}
+body.dark .notice{background:#422006;border-color:#78350f;color:#fcd34d}
+
+/* 弹层 */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:60}
+.modal.hidden{display:none}
+.modal-box{background:var(--card);border:1px solid var(--border);border-radius:14px;width:min(560px,100%);max-height:82vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.25)}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.modal-head h3{margin:0;font-size:15.5px}
+.close{border:0;background:var(--card2);color:var(--muted);width:28px;height:28px;border-radius:7px;font-size:18px;line-height:1}
+.modal-body{padding:16px 20px;overflow-y:auto}
+.modal-foot{padding:12px 20px;border-top:1px solid var(--border);text-align:right}
+.opt-list{display:grid;gap:8px}
+.opt{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:var(--card);text-align:left;color:var(--text)}
+.opt:hover{border-color:var(--blue);background:var(--blue-soft)}
+.opt.on{border-color:var(--blue);background:var(--blue-soft)}
+.opt-ico{width:34px;height:34px;border-radius:9px;background:var(--oc);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:750;font-size:13px;flex:none}
+.opt-main{flex:1}
+.opt-name{font-weight:700;font-size:13.5px}
+.opt-desc{color:var(--muted);font-size:11.5px;margin-top:2px}
+.prov-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.prov-btn{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:9px 4px;font-size:12.5px}
+.prov-btn:hover{border-color:var(--blue);color:var(--blue)}
+.prov-btn.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.result-box{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:16px;font-size:13px;line-height:2}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border)}
+.detail-cell{background:var(--card);padding:12px 16px}
+.detail-cell span{display:block;color:var(--muted);font-size:11.5px}
+.detail-cell b{font-size:13px;font-weight:650}
+.detail-note{padding:14px 20px;background:var(--card2);color:var(--muted);font-size:12.5px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,14px);background:#0f172a;color:#fff;padding:10px 18px;border-radius:9px;font-size:12.5px;opacity:0;pointer-events:none;transition:.25s;z-index:90}
+body.dark .toast{background:#f1f5f9;color:#0f172a}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;line-height:1.8}
+@media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.overview-grid{grid-template-columns:1fr}.app{padding:14px}.prov-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:520px){.kpi-grid{grid-template-columns:1fr 1fr}.search input{width:140px}.filter-info{margin-left:0}.prov-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">⌁</div>
+      <div><h1>运营商资费监控</h1><div class="sub">全网 · 各省资费数据一览</div></div>
+    </div>
+    <div class="tools">
+      <span class="tag-demo" id="dataTag">加载中…</span>
+      <span class="sync" id="sync">--</span>
+      <button class="btn" id="checkBtn">检测资费</button>
+      <button class="btn" id="switchBtn">切换 ›</button>
+      <button class="btn" id="themeBtn">深色</button>
+    </div>
+  </header>
+
+  <nav class="mainnav" id="nav"></nav>
+  <div class="notice" id="notice">正在加载资费数据…实际资费以运营商官网与营业厅公示为准。</div>
+  <main id="view"></main>
+
+  <footer>运营商资费监控面板 · 数据仅供个人学习参考<br>参考项目：zw193020/tariff-monitor-4g · amxysw/carrier-tariff-site</footer>
+</div>
+
+<div class="modal hidden" id="carrierModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>切换运营商</h3><button class="close" data-close>×</button></div>
+    <div class="modal-body"><div class="opt-list" id="carrierOpts"></div></div>
+  </div>
+</div>
+<div class="modal hidden" id="provinceModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>选择省份</h3><button class="close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="search" style="margin-bottom:14px"><input type="text" id="provSearch" placeholder="搜索省份" style="width:100%"></div>
+      <div class="prov-grid" id="provGrid"></div>
+    </div>
+  </div>
+</div>
+<div class="modal hidden" id="checkModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>检测结果</h3><button class="close" data-close>×</button></div>
+    <div class="modal-body"><div class="result-box" id="checkResult"></div></div>
+    <div class="modal-foot"><button class="btn" data-close>知道了</button></div>
+  </div>
+</div>
+<div class="modal hidden" id="detailModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="dTitle">资费详情</h3><button class="close" data-close>×</button></div>
+    <div class="detail-grid" id="dGrid"></div>
+    <div class="detail-note" id="dNote"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- 基础配置 ---------- */
+const CARRIERS = {
+  mobile:{name:'中国移动',short:'移动',color:'#0f9d6e',desc:'官网&监控'},
+  unicom:{name:'中国联通',short:'联通',color:'#e11d2a',desc:'官网&监控'},
+  telecom:{name:'中国电信',short:'电信',color:'#2f6fdb',desc:'官网&监控'},
+  gb:{name:'中国广电',short:'广电',color:'#7c3aed',desc:'官网&监控'}
+};
+const PROVINCES=['全国','北京','天津','河北','山西','内蒙古','辽宁','吉林','黑龙江','上海','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','广西','海南','重庆','四川','贵州','云南','西藏','陕西','甘肃','青海','宁夏','新疆'];
+const TYPES=['套餐','加装包','营销活动'];
+const OWNERS=['个人','政企'];
+const TPL={
+  mobile:[
+    {n:'动感地带5G 78元档',p:78,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'含来电显示；套餐外流量5元/GB。'},
+    {n:'全球通5G 128元档',p:128,t:'套餐',o:'个人',d:'60GB通用',v:'1000分钟',b:'—',note:'含机场贵宾厅等全球通权益。'},
+    {n:'移动花卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+30GB定向',v:'100分钟',b:'—',note:'定向流量覆盖主流短视频与音乐App。'},
+    {n:'全家享融合169元档',p:169,t:'套餐',o:'个人',d:'80GB通用',v:'1000分钟',b:'1000Mbps',note:'含千兆宽带与2张副卡共享。'},
+    {n:'和多号副卡服务费',p:10,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'一证多号，月租10元/张。'},
+    {n:'5G升级包30元档',p:30,t:'加装包',o:'个人',d:'20GB通用',v:'—',b:'—',note:'订购次月生效，不可退订当月。'},
+    {n:'新用户入网优惠活动',p:0,t:'营销活动',o:'个人',d:'10GB通用×6个月',v:'—',b:'—',note:'首年每月赠送10GB，到期自动取消。'},
+    {n:'政企专线宽带100M',p:380,t:'套餐',o:'政企',d:'—',v:'—',b:'100Mbps',note:'含固定IP一个，需企业资质。'},
+    {n:'政企云视讯基础版',p:58,t:'加装包',o:'政企',d:'—',v:'—',b:'—',note:'最高10方视频会议。'}
+  ],
+  unicom:[
+    {n:'冰激凌5G 99元档',p:99,t:'套餐',o:'个人',d:'40GB通用',v:'1000分钟',b:'—',note:'达量降速至1Mbps，次月恢复。'},
+    {n:'腾讯王卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+定向免流',v:'100分钟',b:'—',note:'腾讯系App免流，非免流按日租计费。'},
+    {n:'沃派5G 59元档',p:59,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'含1张副卡。'},
+    {n:'智慧沃家199元档',p:199,t:'套餐',o:'个人',d:'100GB通用',v:'1500分钟',b:'1000Mbps',note:'含IPTV与全屋Wi-Fi组网。'},
+    {n:'流量叠加包20元档',p:20,t:'加装包',o:'个人',d:'10GB通用',v:'—',b:'—',note:'当月有效，不可结转。'},
+    {n:'视频会员权益包',p:15,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'每月任选一款视频会员。'},
+    {n:'校园新生入网礼',p:0,t:'营销活动',o:'个人',d:'20GB通用×12个月',v:'200分钟',b:'—',note:'凭学生证办理，限首年。'},
+    {n:'政企固话融合套餐',p:299,t:'套餐',o:'政企',d:'50GB通用',v:'2000分钟',b:'500Mbps',note:'含3部固话。'},
+    {n:'企业云盘扩容包',p:30,t:'加装包',o:'政企',d:'—',v:'—',b:'—',note:'扩容至1TB。'}
+  ],
+  telecom:[
+    {n:'天翼5G 79元档',p:79,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'赠送100分钟国际长途。'},
+    {n:'星卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+10GB定向',v:'100分钟',b:'—',note:'首年每月返10元话费。'},
+    {n:'天翼畅享129元档',p:129,t:'套餐',o:'个人',d:'80GB通用',v:'1500分钟',b:'—',note:'含5G会员权益三选一。'},
+    {n:'十全十美融合199元档',p:199,t:'套餐',o:'个人',d:'100GB通用',v:'1000分钟',b:'1000Mbps',note:'含IPTV与2张副卡。'},
+    {n:'国际漫游流量包',p:25,t:'加装包',o:'个人',d:'3GB漫游流量',v:'—',b:'—',note:'适用部分国家和地区。'},
+    {n:'天翼云盘会员',p:10,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'个人云盘扩容至2TB。'},
+    {n:'宽带新装0元活动',p:0,t:'营销活动',o:'个人',d:'—',v:'—',b:'300Mbps',note:'承诺在网24个月，免初装费。'},
+    {n:'政企天翼云电脑',p:88,t:'套餐',o:'政企',d:'—',v:'—',b:'—',note:'含云桌面与thin client。'},
+    {n:'商务领航专线',p:699,t:'套餐',o:'政企',d:'200GB通用',v:'3000分钟',b:'1000Mbps',note:'含固定IP与SLA保障。'}
+  ],
+  gb:[
+    {n:'广电5G 38元档',p:38,t:'套餐',o:'个人',d:'20GB通用',v:'100分钟',b:'—',note:'广电192号段，含基础影视权益。'},
+    {n:'广电5G 68元档',p:68,t:'套餐',o:'个人',d:'40GB通用',v:'300分钟',b:'—',note:'含有线电视基础频道。'},
+    {n:'广电融合128元档',p:128,t:'套餐',o:'个人',d:'60GB通用',v:'800分钟',b:'1000Mbps',note:'含广电宽带与电视盒子。'},
+    {n:'影视会员加装包',p:20,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'含4K影视内容。'},
+    {n:'新号段体验活动',p:0,t:'营销活动',o:'个人',d:'10GB通用×3个月',v:'—',b:'—',note:'限192新号段用户。'},
+    {n:'政企广电专线',p:399,t:'套餐',o:'政企',d:'—',v:'—',b:'500Mbps',note:'含企业电视专网。'}
+  ]
+};
+
+/* ---------- 生成示例数据（模拟全国+31省） ---------- */
+function hash(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h);}
+function pad(n){return String(n).padStart(2,'0');}
+function dateOf(seed){const d=new Date(2026,10,1+hash(seed)%19);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+let DATA=[];
+Object.keys(CARRIERS).forEach(op=>{
+  TPL[op].forEach((t,ti)=>{
+    const base={op,type:t.t,owner:t.o,data:t.d,voice:t.v,broadband:t.b,note:t.note,cat:t.t+'/'+t.o};
+    DATA.push({...base,id:op+'-n'+ti,scope:'全国',province:'全国',name:t.n,price:t.p,date:dateOf(op+t.n+'n')});
+    PROVINCES.slice(1).forEach((pv,pi)=>{
+      const delta=(hash(op+pv+t.n)%5-2)*3;
+      const price=Math.max(0,t.p+delta);
+      const white=(hash(pv+t.n)%7===0);
+      DATA.push({...base,id:op+'-'+pi+'-'+ti,scope:'省份',province:pv,name:(white?'【白名单】':'')+t.n,price,date:dateOf(op+pv+t.n)});
+    });
+  });
+});
+let HISTORY=[];
+Object.keys(CARRIERS).forEach(op=>{
+  TPL[op].forEach((t,ti)=>{
+    const pv=PROVINCES[hash(op+t.n+ti)%PROVINCES.length];
+    const kind=['新增','修改','下架'][hash(op+t.n+'k')%3];
+    HISTORY.push({op,province:pv,name:t.n,kind,date:dateOf(op+t.n+'h'),price:t.p});
+  });
+});
+HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
+
+/* ---------- 状态 ---------- */
+const state={tab:'overview',op:'mobile',prov:'江西',type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,page:1,size:12,
+  favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
+const $=id=>document.getElementById(id);
+const money=n=>n===0?'0元':'¥'+n;
+function changeText(h){
+  if(h.kind==='新增') return '新上架 · '+money(h.price)+'/月';
+  if(h.kind==='下架') return '已下架 · 原 '+money(h.price)+'/月';
+  const o=h.old||{},parts=[];
+  const f=[['price','月费',v=>money(Number(v)||0)],['data','通用流量',v=>v||'—'],['voice','语音',v=>v||'—'],['broadband','宽带',v=>v||'—']];
+  f.forEach(([k,label,fmt])=>{
+    const a=o[k],b=h[k];
+    if(a!==undefined&&b!==undefined&&String(a)!==String(b)) parts.push(label+' '+fmt(a)+' → '+fmt(b));
+  });
+  return parts.length?parts.join(' · '):'资费详情有调整，详见运营商官网。';
+}
+
+function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show'),2000);}
+function opBadge(op){return '<span class="op-badge" style="--oc:'+CARRIERS[op].color+'"><i></i>'+CARRIERS[op].name+'</span>';}
+function applyTheme(){document.body.classList.toggle('dark',state.dark);$('themeBtn').textContent=state.dark?'浅色':'深色';}
+
+/* ---------- 导航 ---------- */
+const TABS=[['overview','数据总览'],['national','全国资费'],['province','省份资费'],['history','变化历史'],['about','关于本页']];
+function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-btn'+(state.tab===k?' on':'')+'" data-tab="'+k+'">'+l+'</button>').join('');
+  $('nav').querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;state.page=1;renderNav();render();}));}
+
+/* ---------- 数据查询 ---------- */
+function currentRows(){
+  let rows=DATA.filter(d=>d.op===state.op);
+  if(state.tab==='national') rows=rows.filter(d=>d.scope==='全国');
+  if(state.tab==='province') rows=rows.filter(d=>d.scope==='省份'&&d.province===state.prov);
+  if(state.type!=='all') rows=rows.filter(d=>d.type===state.type);
+  if(state.owner!=='all') rows=rows.filter(d=>d.owner===state.owner);
+  if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
+  const q=state.q.trim().toLowerCase();
+  if(q) rows=rows.filter(d=>d.name.toLowerCase().includes(q));
+  rows.sort((a,b)=>{
+    let v=0;
+    if(state.sort==='price') v=a.price-b.price;
+    if(state.sort==='new') v=b.date.localeCompare(a.date);
+    return state.asc?v:-v;
+  });
+  return rows;
+}
+function cardsHTML(rows){
+  const total=Math.max(1,Math.ceil(rows.length/state.size));
+  if(state.page>total) state.page=total;
+  const pageRows=rows.slice((state.page-1)*state.size,state.page*state.size);
+  if(!rows.length) return '<div class="empty">没有符合条件的资费，试试调整筛选条件。</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>采集日期</th><th>收藏</th><th>详情</th></tr></thead><tbody>'+
+    pageRows.map(d=>'<tr>'+
+      '<td>'+opBadge(d.op)+'</td>'+
+      '<td class="name">'+d.name+'</td>'+
+      '<td><span class="type-tag">'+d.type+'</span></td>'+
+      '<td><span class="owner-tag '+(d.owner==='个人'?'person':'biz')+'">'+d.owner+'</span></td>'+
+      '<td class="price'+(d.price===0?' zero':'')+'">'+money(d.price)+'</td>'+
+      '<td class="muted">'+d.data+(d.voice!=='—'?' · '+d.voice:'')+'</td>'+
+      '<td class="muted">'+d.broadband+'</td>'+
+      '<td class="muted">'+(d.scope==='全国'?'全网':d.province)+'</td>'+
+      '<td class="muted">'+d.date+'</td>'+
+      '<td><button class="star'+(state.favs.has(d.id)?' on':'')+'" data-fav="'+d.id+'">'+(state.favs.has(d.id)?'★':'☆')+'</button></td>'+
+      '<td><button class="detail" data-detail="'+d.id+'">查看</button></td>'+
+    '</tr>').join('')+'</tbody></table></div>'+
+    '<div class="pager"><span>共 '+rows.length+' 条 · 第 '+state.page+' / '+total+' 页</span><div class="pager-btns">'+
+    '<button data-page="prev"'+(state.page<=1?' disabled':'')+'>上一页</button><button data-page="next"'+(state.page>=total?' disabled':'')+'>下一页</button></div></div>';
+}
+function bindTable(){
+  document.querySelectorAll('[data-fav]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.fav;state.favs.has(id)?state.favs.delete(id):state.favs.add(id);
+    localStorage.setItem('tariff_favs',JSON.stringify([...state.favs]));render();toast(state.favs.has(id)?'已收藏':'已取消收藏');
+  }));
+  document.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
+  document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>{
+    const t=Math.max(1,Math.ceil(currentRows().length/state.size));
+    state.page=b.dataset.page==='prev'?Math.max(1,state.page-1):Math.min(t,state.page+1);render();
+  }));
+}
+function filtersHTML(withProv){
+  return '<div class="filters">'+
+    (withProv?'<button class="btn btn-prov" id="openProv">省份：'+state.prov+' ▾</button>':'')+
+    '<select id="fType"><option value="all">全部类型</option>'+TYPES.map(t=>'<option'+(state.type===t?' selected':'')+'>'+t+'</option>').join('')+'</select>'+
+    '<select id="fOwner"><option value="all">全部归属</option>'+OWNERS.map(t=>'<option'+(state.owner===t?' selected':'')+'>'+t+'</option>').join('')+'</select>'+
+    '<select id="fSort"><option value="price"'+(state.sort==='price'?' selected':'')+'>按价格</option><option value="new"'+(state.sort==='new'?' selected':'')+'>最新上架</option></select>'+
+    '<button class="btn" id="fAsc">'+(state.asc?'升序 ↑':'降序 ↓')+'</button>'+
+    '<div class="search"><input type="text" id="fQ" value="'+state.q.replace(/"/g,'&quot;')+'" placeholder="搜索业务名称"></div>'+
+    '<button class="btn'+(state.favOnly?' on':'')+'" id="fFav">★ 收藏</button>'+
+    '<div class="filter-info"><span id="fCount">--</span><button class="link-btn" id="fCsv">导出 CSV</button><button class="link-btn" id="fReset">重置</button></div>'+
+  '</div>';
+}
+function bindFilters(withProv){
+  if(withProv){$('openProv').addEventListener('click',()=>openProvinceModal());}
+  $('fType').addEventListener('change',e=>{state.type=e.target.value;state.page=1;render();});
+  $('fOwner').addEventListener('change',e=>{state.owner=e.target.value;state.page=1;render();});
+  $('fSort').addEventListener('change',e=>{state.sort=e.target.value;state.page=1;render();});
+  $('fAsc').addEventListener('click',()=>{state.asc=!state.asc;state.page=1;render();});
+  $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;render();});
+  $('fFav').addEventListener('click',()=>{state.favOnly=!state.favOnly;state.page=1;render();});
+  $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.favOnly=false;state.page=1;render();});
+  $('fCsv').addEventListener('click',exportCSV);
+  $('fCount').textContent='共 '+currentRows().length+' 条';
+}
+function exportCSV(){
+  const rows=currentRows();
+  const head=['运营商','业务名称','类型','归属','月费(元)','流量','语音','宽带','适用地区','采集日期'];
+  const esc=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const lines=[head.map(esc).join(',')].concat(rows.map(d=>[CARRIERS[d.op].name,d.name,d.type,d.owner,d.price,d.data,d.voice,d.broadband,d.scope==='全国'?'全网':d.province,d.date].map(esc).join(',')));
+  const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=CARRIERS[state.op].name+'-'+(state.tab==='province'?state.prov:state.tab==='national'?'全国':'资费')+'.csv';a.click();URL.revokeObjectURL(a.href);
+  toast('已导出 '+rows.length+' 条资费');
+}
+
+/* ---------- 各页面 ---------- */
+function renderOverview(){
+  const opData=DATA.filter(d=>d.op===state.op);
+  const nat=opData.filter(d=>d.scope==='全国');
+  const pv=opData.filter(d=>d.scope==='省份');
+  const prov=opData.filter(d=>d.scope==='省份'&&d.province===state.prov);
+  const cats=TYPES.flatMap(t=>OWNERS.map(o=>[t+'/'+o,prov.filter(d=>d.cat===t+'/'+o).length]));
+  const provCount=PROVINCES.slice(1).map(p=>[p,pv.filter(d=>d.province===p).length]).sort((a,b)=>b[1]-a[1]);
+  const max=Math.max(1,...cats.map(c=>c[1]));
+  $('view').innerHTML=
+    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(window.__meta?'':'（示例数据）')+'</p>'+
+    '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
+    '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
+    '<div class="kpi-grid">'+
+    '<div class="kpi" style="--accent:'+CARRIERS[state.op].color+'"><div class="kpi-label">当前省份</div><div class="kpi-val" style="font-size:22px">'+state.prov+'</div><div class="kpi-foot">点击顶部「切换」或省份资费页可更换</div></div>'+
+    '<div class="kpi" style="--accent:#2563eb"><div class="kpi-label">本省资费总数</div><div class="kpi-val">'+prov.length+'</div><div class="kpi-foot">含套餐 / 加装包 / 营销活动</div></div>'+
+    '<div class="kpi" style="--accent:#7c3aed"><div class="kpi-label">零元业务</div><div class="kpi-val">'+prov.filter(d=>d.price===0).length+'</div><div class="kpi-foot">本省免费或赠送类资费</div></div>'+
+    '<div class="kpi" style="--accent:#f59e0b"><div class="kpi-label">近30天变更</div><div class="kpi-val">'+HISTORY.filter(h=>h.op===state.op&&h.date>=new Date(Date.now()-30*864e5).toISOString().slice(0,10)).length+'</div><div class="kpi-foot">见「变化历史」时间线</div></div></div>'+
+    '<div class="overview-grid"><div class="card section"><div class="card-head"><h3 class="card-title">六大类分布 <span class="pill">'+state.prov+'</span></h3><span class="card-desc">本省资费总数 '+prov.length+'</span></div><div class="dist">'+
+    cats.map(([c,n])=>'<div class="dist-row"><span class="dist-name">'+c+'</span><div class="dist-track"><div class="dist-fill" style="width:'+(n/max*100)+'%;background:'+CARRIERS[state.op].color+'"></div></div><span class="dist-val">'+n+'</span></div>').join('')+
+    '</div></div><div class="card section"><div class="card-head"><h3 class="card-title">省份资费统计</h3><span class="card-desc">按收录数量排序</span></div><div class="prov-list">'+
+    provCount.slice(0,8).map(([p,n])=>'<div class="prov-item"><span>'+p+(p===state.prov?' <span class="pill">当前</span>':'')+'</span><b>'+n+'</b></div>').join('')+
+    '<div class="prov-more" id="toProv">查看全部省份 →</div></div></div></div>';
+  $('toProv').addEventListener('click',()=>{state.tab='province';renderNav();render();});
+}
+function renderListPage(withProv){
+  const rows=currentRows();
+  const title=state.tab==='national'?'全国资费':'省份资费 · '+state.prov;
+  const desc=state.tab==='national'?('各运营商官网公示的全国通用资费'+(window.__meta?'':'（示例）')):('以官网「适用地区」字段为准，默认江西'+(window.__meta?'':'（示例）'));
+  $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">'+title+' <span class="pill">'+CARRIERS[state.op].name+'</span></h3><span class="card-desc">'+desc+'</span></div>'+
+    filtersHTML(withProv)+cardsHTML(rows)+'</div>';
+  bindFilters(withProv);bindTable();
+}
+function renderHistory(){
+  let rows=HISTORY.filter(h=>h.op===state.op);
+  $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">资费变更时间线 <span class="pill">'+CARRIERS[state.op].name+'</span></h3>'+
+    '<span class="card-desc">自动定时抓取比对，有变化即刷新 · 按省份标注</span></div>'+
+    '<div class="filters"><select id="hProv"><option value="all">全部省份</option>'+PROVINCES.slice(1).map(p=>'<option'+(state.prov===p?' selected':'')+'>'+p+'</option>').join('')+'</select><button class="btn" id="hReload">重新加载</button><span class="filter-info" id="hCount"></span></div>'+
+    '<div class="timeline" id="timeline"></div></div>';
+  const draw=()=>{
+    const pv=$('hProv').value;
+    const list=pv==='all'?rows:rows.filter(h=>h.province===pv);
+    $('hCount').textContent='共 '+list.length+' 条变更记录';
+    $('timeline').innerHTML=list.length?list.map(h=>{
+      const cls=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+      const detail=changeText(h);
+      return '<div class="tl-item"><span class="tl-dot" style="--oc:'+CARRIERS[h.op].color+'"></span><div class="tl-body">'+
+        '<div class="tl-title">'+h.name+' <span class="chg '+cls+'">'+h.kind+'</span></div>'+
+        '<div class="tl-meta"><span>'+opBadge(h.op)+'</span><span>'+h.province+'</span><span>'+h.date+'</span></div>'+
+        '<div class="tl-change muted">'+detail+'</div></div></div>';
+    }).join(''):'<div class="empty">该省份暂无变更记录。</div>';
+  };
+  $('hProv').addEventListener('change',draw);
+  $('hReload').addEventListener('click',async()=>{
+    try{
+      const r=await fetch(DATA_BASE+'history.json',{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      HISTORY=adaptHistory(await r.json());
+      rows=HISTORY.filter(h=>h.op===state.op);
+      draw();toast('已重新加载 '+rows.length+' 条变更记录');
+    }catch(e){toast('加载失败：'+e.message);}
+  });
+  draw();
+}
+function renderAbout(){
+  $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">关于本页</h3></div><div class="about">'+
+    '<p>本页面展示各运营商「全网资费」及各省的公开资费资料。数据由 GitHub Actions 定时抓取运营商官网资费专区，比对变化后写入仓库 <code>data/</code> 目录，页面通过 <code>raw.githubusercontent.com</code> 直接读取——无需服务器、无需数据库。</p>'+
+    '<p id="aboutStatus"></p>'+
+    '<h3>数据来源</h3><p>抓取脚本复用参考项目已验证的四家接口：<code>zw193020/tariff-monitor-4g</code>、<code>amxysw/carrier-tariff-site</code>。真实数据以中国移动、中国联通、中国电信、中国广电官网公开资费专区为准。</p>'+
+    '<h3>省份切换</h3><p>「省份资费」页可自助选择省份；变化历史同样按省份标注。默认江西。</p>'+
+    '<h3>更新方式</h3><p><code>.github/workflows/update.yml</code> 每日两次（北京 08:47 / 20:47）自动抓取，也可在 Actions 页手动触发。抓取后统一字段、按稳定业务编号做 diff（价格/流量变动记为「修改」而非新增+下架），结果 commit 回仓库。页面刷新即读最新数据。</p>'+
+    '<h3>变动提醒</h3><p>可配置钉钉群机器人推送关注的资费变动：在仓库 Settings → Secrets and variables → Actions 中设置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填写），Variables 中设置 <code>WATCH_RULES</code> 指定范围，例如 <code>mobile:江西|北京;telecom:新疆</code>。命中新增、修改或下架时自动推送。</p>'+
+    '<h3>数据口径</h3><p>以官网「适用地区」「适用范围」字段为准，仅供参考。分类维度为 <code>套餐 / 加装包 / 营销活动</code> × <code>个人 / 政企</code>。</p>'+
+    '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、业务名称搜索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、深色模式。</p>'+
+    '<h3>免责声明</h3><p>展示内容可能存在延迟或误差，办理业务请以营业厅 / 官方客服热线信息为准。</p>'+
+    '</div></div>';
+  const meta=window.__meta;
+  if($('aboutStatus')) $('aboutStatus').innerHTML = meta
+    ? '<span class="pill">当前：真实数据</span> 共 '+meta.count+' 条资费，覆盖 '+Object.keys(meta.by_province||{}).length+' 个地区，最近更新 '+meta.timestamp+'。'
+    : '<span class="pill">当前：内置示例数据</span> 未检测到线上数据文件。';
+}
+function render(){
+  if(state.tab==='overview') renderOverview();
+  else if(state.tab==='national') renderListPage(false);
+  else if(state.tab==='province') renderListPage(true);
+  else if(state.tab==='history') renderHistory();
+  else renderAbout();
+}
+
+/* ---------- 弹层 ---------- */
+function openModal(id){$(id).classList.remove('hidden');}
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('.modal').classList.add('hidden')));
+document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.add('hidden');}));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal').forEach(m=>m.classList.add('hidden'));});
+
+function renderCarrierOpts(){
+  $('carrierOpts').innerHTML=Object.keys(CARRIERS).map(k=>'<button class="opt'+(state.op===k?' on':'')+'" data-op="'+k+'" style="--oc:'+CARRIERS[k].color+'">'+
+    '<span class="opt-ico">'+CARRIERS[k].short.charAt(0)+'</span><span class="opt-main"><div class="opt-name">'+CARRIERS[k].name+'</div><div class="opt-desc">'+CARRIERS[k].desc+'</div></span>'+(state.op===k?'<span>✓</span>':'')+'</button>').join('');
+  $('carrierOpts').querySelectorAll('[data-op]').forEach(b=>b.addEventListener('click',()=>{state.op=b.dataset.op;state.page=1;renderCarrierOpts();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name);}));
+}
+function renderProvGrid(q=''){
+  const list=PROVINCES.filter(p=>p.includes(q.trim()));
+  $('provGrid').innerHTML=list.map(p=>'<button class="prov-btn'+(state.prov===p?' on':'')+'" data-pv="'+p+'">'+p+'</button>').join('')||'<div class="empty" style="grid-column:1/-1">未找到省份</div>';
+  $('provGrid').querySelectorAll('[data-pv]').forEach(b=>b.addEventListener('click',()=>{state.prov=b.dataset.pv;state.page=1;renderProvGrid($('provSearch').value);render();$('provinceModal').classList.add('hidden');toast('已切换到'+state.prov);}));
+}
+function openProvinceModal(){renderProvGrid();$('provSearch').value='';openModal('provinceModal');}
+function openDetail(id){
+  const d=DATA.find(x=>x.id===id);if(!d)return;
+  $('dTitle').textContent=d.name;
+  const cells=[['运营商',CARRIERS[d.op].name],['月费',money(d.price)],['类型',d.type],['归属',d.owner+'资费'],['流量',d.data],['语音',d.voice],['宽带',d.broadband],['适用地区',d.scope==='全国'?'全网通用':d.province],['采集日期',d.date],['收藏状态',state.favs.has(d.id)?'已收藏':'未收藏']];
+  $('dGrid').innerHTML=cells.map(([k,v])=>'<div class="detail-cell"><span>'+k+'</span><b>'+v+'</b></div>').join('');
+  $('dNote').textContent='说明：'+d.note;
+  openModal('detailModal');
+}
+
+/* ---------- 事件 ---------- */
+$('switchBtn').addEventListener('click',()=>{renderCarrierOpts();openModal('carrierModal');});
+$('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.setItem('tariff_dark',state.dark?'1':'0');applyTheme();});
+$('checkBtn').addEventListener('click',async()=>{
+  const real=$('dataTag').textContent==='真实数据';
+  if(!real){
+    const n=HISTORY.filter(h=>h.op===state.op).length;
+    $('checkResult').innerHTML='<b>检测完成</b>（'+CARRIERS[state.op].name+'）<br>示例变更记录：'+n+' 条<br><span class="muted">当前为示例数据，检测结果仅作演示。</span>';
+    openModal('checkModal');return;
+  }
+  $('checkResult').innerHTML='<b>检测完成</b>（'+CARRIERS[state.op].name+'）<br>正在查询最新变更…';
+  openModal('checkModal');
+  await loadData();
+  const rows=HISTORY.filter(h=>h.op===state.op);
+  const cnt=k=>rows.filter(h=>h.kind===k).length;
+  $('checkResult').innerHTML='<b>检测完成</b>（'+CARRIERS[state.op].name+'）<br>新增：'+cnt('新增')+' 项<br>修改：'+cnt('修改')+' 项<br>下架：'+cnt('下架')+' 项<br><span class="muted">数据来源：GitHub Actions 定时抓取比对，更新于 '+(window.__meta&&window.__meta.timestamp||'--')+'。</span>';
+});
+$('provSearch').addEventListener('input',e=>renderProvGrid(e.target.value));
+
+/* ---------- 数据源 ---------- */
+// GitHub Actions 抓取产物发布在 raw.githubusercontent.com；本地可直接放 data/ 目录。
+const DATA_BASE = (typeof window.TARIFF_DATA_BASE !== 'undefined')
+  ? window.TARIFF_DATA_BASE
+  : 'data/';
+
+// 把构建器的统一结构转成页面渲染所需字段
+function adaptRemote(raw){
+  const out=[];
+  (raw||[]).forEach((d,i)=>{
+    const op = d.op && CARRIERS[d.op] ? d.op : 'mobile';
+    const prov = d.province || '全国';
+    const scope = prov==='全国' ? '全国' : '省份';
+    const type = ['套餐','加装包','营销活动'].includes(d.type) ? d.type : '套餐';
+    const owner = d.owner==='政企' ? '政企' : '个人';
+    const price = (d.price===null||d.price===undefined||isNaN(Number(d.price))) ? 0 : Number(d.price);
+    const date = (d.date||(window.__meta&&window.__meta.date)||'').slice(0,10);
+    out.push({
+      id: d.id || ('r'+i),
+      op, name: d.name || '未命名资费', price,
+      type, owner, cat: type+'/'+owner,
+      data: d.data || '—', voice: d.voice || '—', broadband: d.broadband || '—',
+      note: d.note || '详见运营商官网资费专区。',
+      scope, province: prov,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '2026-01-01'
+    });
+  });
+  return out;
+}
+function adaptHistory(raw){
+  return (raw||[]).map((h,i)=>({
+    op: h.op && CARRIERS[h.op] ? h.op : 'mobile',
+    province: h.province || '全国',
+    name: h.name || '资费业务',
+    kind: ['新增','修改','下架'].includes(h.kind) ? h.kind : '修改',
+    date: (h.date||'').slice(0,10) || '2026-01-01',
+    price: Number(h.price)||0,
+    data: h.data, voice: h.voice, broadband: h.broadband,
+    old: h.old && typeof h.old === 'object' ? h.old : null
+  })).sort((a,b)=>b.date.localeCompare(a.date));
+}
+
+async function loadData(){
+  const tag=$('dataTag'), notice=$('notice'), sync=$('sync');
+  try{
+    const [metaRes,itemsRes,histRes]=await Promise.all([
+      fetch(DATA_BASE+'latest.json',{cache:'no-store'}),
+      fetch(DATA_BASE+'items.json',{cache:'no-store'}),
+      fetch(DATA_BASE+'history.json',{cache:'no-store'})
+    ]);
+    if(!metaRes.ok||!itemsRes.ok||!histRes.ok) throw new Error('HTTP '+[metaRes.status,itemsRes.status,histRes.status].join('/'));
+    const [meta,items,hist]=await Promise.all([metaRes.json(),itemsRes.json(),histRes.json()]);
+    if(!Array.isArray(items)||items.length<10) throw new Error('数据量异常');
+    window.__meta=meta;
+    DATA=adaptRemote(items);
+    HISTORY=adaptHistory(hist);
+    tag.textContent='真实数据';
+    tag.style.background='#dcfce7';tag.style.color='#166534';
+    notice.textContent='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
+    sync.textContent='更新于 '+(meta.date||'--');
+    render();
+  }catch(e){
+    tag.textContent='示例数据';
+    tag.style.background='';tag.style.color='';
+    notice.textContent='当前展示内置示例数据（未能加载线上数据：'+e.message+'）。实际资费以运营商官网与营业厅公示为准。';
+    const d=new Date(),p=n=>String(n).padStart(2,'0');
+    sync.textContent='示例 · '+p(d.getMonth()+1)+'-'+p(d.getDate());
+  }
+}
+
+/* ---------- 启动 ---------- */
+(async function init(){
+  applyTheme();renderNav();render();
+  await loadData();
+})();
+</script>
+</body>
+</html>
