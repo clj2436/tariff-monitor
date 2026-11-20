@@ -208,11 +208,15 @@ def _decrypt(hexstr: str) -> str:
 
 
 def _build_opener():
-    ctx = ssl.create_default_context()
+    # 复用公共 SSL 上下文：同时放宽 OP_LEGACY_SERVER_CONNECT 与
+    # SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION，兼容运营商老网关的 TLS 重协商。
     try:
+        from pipeline_common import make_ssl_context
+        ctx = make_ssl_context()
+    except Exception:
+        ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
-    except AttributeError:
-        pass
+        ctx.options |= 0x40000  # 允许不安全旧重协商
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
     return opener
 

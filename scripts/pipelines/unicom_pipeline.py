@@ -13,7 +13,8 @@
 import json, time, os, sys, urllib.request, http.cookiejar, hashlib, argparse, math
 
 from pipeline_common import (is_sampling_noise, mark_noise, has_real_change,
-                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key)
+                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key,
+                             make_ssl_context)
 
 PROG_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_API = "https://m.client.10010.com/servicequerybusiness/queryTariffNew/"
@@ -23,7 +24,8 @@ HDRS = {
     "Accept": "application/json, text/plain, */*",
 }
 _cj = http.cookiejar.CookieJar()
-_op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj))
+_op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj),
+                                  urllib.request.HTTPSHandler(context=make_ssl_context()))
 
 NAME = {
     "quanguo": "全网(全国)",

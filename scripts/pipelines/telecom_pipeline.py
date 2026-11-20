@@ -12,7 +12,8 @@
 import urllib.request, json, time, base64, hashlib, os, sys, argparse
 
 from pipeline_common import (is_sampling_noise, mark_noise, has_real_change,
-                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key)
+                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key,
+                             make_ssl_context)
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
@@ -63,10 +64,11 @@ def call(fn, rc):
         "Origin": "https://www.189.cn",
         "x-qd-reqtime": str(int(time.time() * 1000)),
     })
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=make_ssl_context()))
     last = None
     for a in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with opener.open(req, timeout=60) as r:
                 return json.loads(r.read().decode("utf-8"))
         except Exception as e:
             last = e

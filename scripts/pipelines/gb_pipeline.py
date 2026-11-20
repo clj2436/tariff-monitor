@@ -18,12 +18,13 @@
 import json, time, os, sys, urllib.request, ssl, hashlib, argparse
 
 from pipeline_common import (is_sampling_noise, mark_noise, has_real_change,
-                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key)
+                             modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key,
+                             make_ssl_context)
 
 PROG_DIR = os.path.dirname(os.path.abspath(__file__))
 API = "https://m.10099.com.cn/contact-web/api/goods/"
 CHANNEL = "cd_20220914_514144"
-_ctx = ssl.create_default_context()
+_ctx = make_ssl_context()
 _ctx.check_hostname = True
 _ctx.verify_mode = ssl.CERT_REQUIRED
 HDRS = {

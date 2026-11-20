@@ -8,6 +8,25 @@
 import os
 import re
 import json
+import ssl
+
+
+def make_ssl_context():
+    """兼容运营商老接口的 TLS 上下文。
+
+    部分运营商网关仍使用旧版 TLS 重协商，OpenSSL 3.x（Python 3.10+，GitHub
+    Actions 的 setup-python 默认新版）默认禁用，会抛
+    ``SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED``。这里显式放行：
+      - OP_LEGACY_SERVER_CONNECT (0x4)：允许连接不支持安全重协商的旧服务端；
+      - SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION (0x40000)：允许不安全旧重协商，
+        Python 的 ssl 模块未暴露该常量，直接用数值。
+    证书校验仍然开启，仅放宽重协商策略，不影响安全性。
+    """
+    ctx = ssl.create_default_context()
+    ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
+    ctx.options |= 0x40000  # SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
+    return ctx
+
 
 # 标题命中任一关键词即判定为测试/作废数据。
 #
