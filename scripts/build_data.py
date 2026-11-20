@@ -86,11 +86,73 @@ def prov_from_scope(scope):
     return pinyin.get(scope, "全国")
 
 
-def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code):
+def fmt_value(v):
+    """把单个原始字段整理成可读文本；列表用「、」连接，空值丢弃。"""
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return "、".join(norm(x) for x in v if norm(x))
+    if isinstance(v, dict):
+        return "；".join(f"{k}：{norm(x)}" for k, x in v.items() if norm(x))
+    return norm(v)
+
+
+def build_note(detail, province=""):
+    """从原始 detail 汇总完整资费说明，按固定顺序拼接，避免任何字段被丢弃。"""
+    labels = [
+        ("serviceContent", "服务内容"), ("sms", "短信"), ("orientTraffic", "定向流量"),
+        ("regionTraffic", "省内流量"), ("iptv", "IPTV"), ("validPeriod", "有效期"),
+        ("onlinePeriod", "上线时间"), ("saleChnl", "销售渠道"), ("channel", "销售渠道"),
+        ("onDate", "上架日期"), ("offDate", "下架日期"), ("unsubscribe", "退订方式"),
+        ("responsibility", "责任义务"), ("inNetReq", "在网要求"), ("otherNotes", "其他说明"),
+        ("useScope", "适用范围"), ("extraFees", "额外费用"), ("otherInfo", "其他信息"),
+    ]
+    parts = []
+    for key, label in labels:
+        val = fmt_value(detail.get(key))
+        if not val:
+            continue
+        # 服务内容/其他说明本身较长且可能已含字段名，避免重复前缀
+        if label in ("服务内容", "其他说明") and (val.startswith(label) or "：" in val[:12]):
+            parts.append(val)
+        else:
+            parts.append(f"{label}：{val}")
+    # detail 里未被上面覆盖、且有中文内容的字段，兜底收进说明（过滤纯数字/编码/状态位）
+    covered = {k for k, _ in labels} | {"name", "fee", "feesStandard", "codeType", "firstLevelType",
+                                        "secondLevelType", "reportNo", "id", "title", "minute",
+                                        "broadBand", "commonData", "firstLevel", "secondLevel"}
+    for key, val in detail.items():
+        if key in covered or val in (None, "", [], {}):
+            continue
+        txt = fmt_value(val)
+        if len(txt) >= 4 and re.search(r"[\u4e00-\u9fa5]", txt):
+            parts.append(txt)
+    return "；".join(parts)
+
+
+def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code, detail=None):
+    detail = detail or {}
+    full_note = build_note(detail) or norm(note)
+    # 结构化详情字段：供前端详情弹窗展示；不进入 diff 比较，避免抓取抖动造成假变更
+    keys = {
+        "sms": ("sms",), "orient": ("orientTraffic", "定向流量"),
+        "channel": ("saleChnl", "channel", "销售渠道"),
+        "useScope": ("useScope", "适用范围"), "service": ("serviceContent", "服务内容"),
+        "validPeriod": ("validPeriod", "有效期"), "unsubscribe": ("unsubscribe", "退订方式"),
+        "inNetReq": ("inNetReq", "在网要求"), "iptv": ("iptv",),
+    }
+    extra = {}
+    for out_key, candidates in keys.items():
+        for c in candidates:
+            val = fmt_value(detail.get(c))
+            if val:
+                extra[out_key] = norm(val)[:200]
+                break
     return {
         "op": op, "name": norm(name), "price": price, "type": typ, "owner": owner,
         "data": norm(data), "voice": norm(voice), "broadband": norm(broadband),
-        "note": norm(note)[:400], "province": province, "code": norm(code),
+        "note": norm(note)[:400], "note_full": full_note[:1500],
+        "province": province, "code": norm(code), "details": extra,
         "source": CARRIER_NAMES[op] + "官网",
     }
 
@@ -112,6 +174,16 @@ def do_mobile(sections):
         pv = prov_from_scope(sec)
         for it in data.get("items") or []:
             f = it.get("fields") or {}
+            # 移动的 fields 是中文键，映射成 detail 结构以复用完整说明/结构化字段逻辑
+            detail = {
+                "serviceContent": f.get("其他服务内容") or f.get("权益"),
+                "sms": f.get("短信"), "orientTraffic": f.get("定向流量"),
+                "iptv": f.get("移动高清"), "useScope": f.get("适用范围"),
+                "validPeriod": f.get("有效期限"), "saleChnl": f.get("销售渠道"),
+                "unsubscribe": f.get("退订方式"), "inNetReq": f.get("在网要求"),
+                "responsibility": f.get("违约责任"), "extraFees": f.get("超出资费说明"),
+                "otherNotes": f.get("其他说明"),
+            }
             rows.append(mk(
                 "mobile", it.get("name"), money(f.get("资费标准")),
                 classify_type(f.get("资费类型")),
@@ -119,7 +191,7 @@ def do_mobile(sections):
                 f.get("国内通用流量"), f.get("国内通话"), f.get("宽带"),
                 f.get("其他服务内容") or f.get("适用范围") or f.get("其他说明"),
                 norm(f.get("适用地区")) if norm(f.get("适用地区")) in PROV_CN else pv,
-                f.get("方案编号"),
+                f.get("方案编号"), detail=detail,
             ))
         print(f"[移动] {sec}: {len(data.get('items') or [])} 条")
     return rows
@@ -172,15 +244,15 @@ def do_common(op, sections):
                     break
             else:
                 candidate = it.get("title") or ""
+            raw_note = d.get("otherNotes") or d.get("serviceContent") or d.get("useScope")
             rows.append(mk(
                 op, it.get("title") or d.get("name"),
                 money(it.get("fee") if it.get("fee") not in (None, "") else d.get("feesStandard")),
                 classify_type(candidate, it.get("title")),
                 "政企" if "政企" in l1 or "政企" in norm(d.get("firstLevelType")) else "个人",
-                " ".join(x for x in [norm(d.get("commonData")), norm(d.get("orientTraffic"))] if x),
+                " ".join(x for x in [norm(d.get("commonData")), norm(d.get("dataUnit"))] if x),
                 d.get("minute"), d.get("broadBand"),
-                d.get("serviceContent") or d.get("otherNotes") or d.get("useScope"),
-                pv, d.get("reportNo") or it.get("id"),
+                raw_note, pv, d.get("reportNo") or it.get("id"), detail=d,
             ))
         print(f"[{op}] {sc}: {len(items)} 条")
     return rows
