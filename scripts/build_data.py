@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+资费数据构建器
+==============
+复用四家运营商已验证的抓取管道，统一字段 -> 统一 diff -> 输出前端 JSON。
+
+产物写入 data/ 目录，随 git commit 发布；raw.githubusercontent.com 即免费 CDN。
+  data/items.json           全量资费（统一结构）
+  data/history.json         变更记录（累积，最近 N 条）
+  data/current_changes.json 本轮新产生的变更（供钉钉等通知使用）
+  data/latest.json          索引 + KPI
+
+用法：
+  python3 scripts/build_data.py --out data
+  python3 scripts/build_data.py --out data --carriers mobile,unicom --sections quanguo,jiangxi
+  python3 scripts/build_data.py --out data --rebuild     # 重建基线，不记变化
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PIPE = os.path.join(HERE, "pipelines")
+sys.path.insert(0, PIPE)
+sys.path.insert(0, os.path.join(PIPE, "mobile"))
+
+CARRIER_NAMES = {
+    "mobile": "中国移动", "unicom": "中国联通",
+    "telecom": "中国电信", "gb": "中国广电",
+}
+PROV_CN = ["北京", "天津", "河北", "山西", "内蒙古", "辽宁", "吉林", "黑龙江", "上海",
+           "江苏", "浙江", "安徽", "福建", "江西", "山东", "河南", "湖北", "湖南",
+           "广东", "广西", "海南", "重庆", "四川", "贵州", "云南", "西藏", "陕西",
+           "甘肃", "青海", "宁夏", "新疆"]
+
+TZ = dt.timezone(dt.timedelta(hours=8))
+TODAY = dt.datetime.now(TZ).strftime("%Y-%m-%d")
+NOW = dt.datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def norm(v):
+    x = "" if v is None else str(v)
+    x = re.sub(r"<br\s*/?>", " ", x, flags=re.I)
+    x = re.sub(r"<[^>]*>", "", x)
+    return re.sub(r"\s+", " ", x).strip()
+
+
+def money(v):
+    if v is None:
+        return None
+    s = str(v).replace(",", "")
+    m = re.search(r"(\d+(?:\.\d+)?)", s)
+    return float(m.group(1)) if m else None
+
+
+def classify_type(raw, title=""):
+    t = norm(raw)
+    if "加装" in t or "叠加" in t or ("包" in t and "套餐" not in t):
+        return "加装包"
+    if "营销" in t or "活动" in t or "优惠" in t:
+        return "营销活动"
+    return "套餐" if "套餐" in t else (t or "套餐")
+
+
+def prov_from_scope(scope):
+    if scope in ("quanguo", "全国", "全网", "ZZZZ"):
+        return "全国"
+    # scope 可能是拼音或中文
+    if scope in PROV_CN:
+        return scope
+    pinyin = {
+        "beijing": "北京", "tianjin": "天津", "hebei": "河北", "shanxi": "山西",
+        "neimenggu": "内蒙古", "liaoning": "辽宁", "jilin": "吉林",
+        "heilongjiang": "黑龙江", "shanghai": "上海", "jiangsu": "江苏",
+        "zhejiang": "浙江", "anhui": "安徽", "fujian": "福建", "jiangxi": "江西",
+        "shandong": "山东", "henan": "河南", "hubei": "湖北", "hunan": "湖南",
+        "guangdong": "广东", "guangxi": "广西", "hainan": "海南", "chongqing": "重庆",
+        "sichuan": "四川", "guizhou": "贵州", "ynnan": "云南", "yunnan": "云南",
+        "xizang": "西藏", "shaanxi": "陕西", "gansu": "甘肃", "qinghai": "青海",
+        "ningxia": "宁夏", "xinjiang": "新疆",
+    }
+    return pinyin.get(scope, "全国")
+
+
+def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code):
+    return {
+        "op": op, "name": norm(name), "price": price, "type": typ, "owner": owner,
+        "data": norm(data), "voice": norm(voice), "broadband": norm(broadband),
+        "note": norm(note)[:400], "province": province, "code": norm(code),
+        "source": CARRIER_NAMES[op] + "官网",
+    }
+
+
+# ---------- 各运营商抓取 + 归一化 ----------
+def do_mobile(sections):
+    import fetcher
+    from province_table import SECTION_INFO
+    rows = []
+    secs = sections or ["quanguo"] + [s for s, _, _ in
+                                      __import__("province_table").PROVINCES]
+    for sec in secs:
+        code = "731" if sec == "quanguo" else SECTION_INFO.get(sec, ("731", sec, sec))[0]
+        try:
+            data = fetcher.fetch_section(sec, code)
+        except Exception as e:
+            print(f"[移动] {sec} 抓取失败: {e}", file=sys.stderr)
+            continue
+        pv = prov_from_scope(sec)
+        for it in data.get("items") or []:
+            f = it.get("fields") or {}
+            rows.append(mk(
+                "mobile", it.get("name"), money(f.get("资费标准")),
+                classify_type(f.get("资费类型")),
+                "政企" if "政企" in norm(f.get("归属")) else "个人",
+                f.get("国内通用流量"), f.get("国内通话"), f.get("宽带"),
+                f.get("其他服务内容") or f.get("适用范围") or f.get("其他说明"),
+                norm(f.get("适用地区")) if norm(f.get("适用地区")) in PROV_CN else pv,
+                f.get("方案编号"),
+            ))
+        print(f"[移动] {sec}: {len(data.get('items') or [])} 条")
+    return rows
+
+
+def do_common(op, sections):
+    """联通 / 电信 / 广电：统一 detail 结构。"""
+    mod = __import__(f"{op}_pipeline", fromlist=["x"])
+    rows = []
+
+    # 构造 (scope, arg...) 任务
+    if op == "gb":
+        jobs = [(sc, area, None, None) for sc, area, _ in mod.AREAS]
+    elif op == "telecom":
+        jobs = [(sc, cfg["prov"], None, None) for sc, cfg in mod.SCOPES.items()]
+    else:  # unicom
+        alljobs = mod.build_jobs()
+        jobs = [(sc, v[0], v[1], v[2]) for sc, v in alljobs.items()]
+
+    wanted = set(sections) if sections else None
+    for job in jobs:
+        sc = job[0]
+        if wanted and sc not in wanted:
+            continue
+        try:
+            if op == "gb":
+                items, _failed = mod.fetch_scope(sc, job[1])
+            elif op == "telecom":
+                items = mod.fetch_scope(sc, job[1])
+            else:
+                d = mod.build_scope(sc, job[1], job[2], job[3])
+                if d.get("partial"):
+                    print(f"[联通] {sc} 采集不完整，跳过", file=sys.stderr)
+                    continue
+                items = d.get("items") or []
+        except Exception as e:
+            print(f"[{op}] {sc} 抓取失败: {e}", file=sys.stderr)
+            continue
+
+        pv = prov_from_scope(sc)
+        for it in items:
+            d = it.get("detail") or {}
+            # 类型来源优先级：电信的 firstLevel(lable1Name) 最可靠，其次 secondLevel，
+            # 再退到 detail.codeType，最后按标题关键词兜底。
+            l1 = norm(it.get("firstLevel"))
+            l2 = norm(it.get("secondLevel")) or norm(d.get("secondLevelType"))
+            ctype = norm(d.get("codeType"))
+            for candidate in (l1, l2, ctype):
+                if any(k in candidate for k in ("套餐", "加装", "营销", "活动", "优惠")):
+                    break
+            else:
+                candidate = it.get("title") or ""
+            rows.append(mk(
+                op, it.get("title") or d.get("name"),
+                money(it.get("fee") if it.get("fee") not in (None, "") else d.get("feesStandard")),
+                classify_type(candidate, it.get("title")),
+                "政企" if "政企" in l1 or "政企" in norm(d.get("firstLevelType")) else "个人",
+                " ".join(x for x in [norm(d.get("commonData")), norm(d.get("orientTraffic"))] if x),
+                d.get("minute"), d.get("broadBand"),
+                d.get("serviceContent") or d.get("otherNotes") or d.get("useScope"),
+                pv, d.get("reportNo") or it.get("id"),
+            ))
+        print(f"[{op}] {sc}: {len(items)} 条")
+    return rows
+
+
+# ---------- diff ----------
+def stable_key(d):
+    code = norm(d.get("code"))
+    return code if code else f"{d['op']}|{d['name']}|{d['owner']}|{d['province']}"
+
+
+def diff_rows(prev, cur):
+    pmap, cmap = {}, {}
+    for d in prev:
+        pmap.setdefault(stable_key(d), []).append(d)
+    for d in cur:
+        cmap.setdefault(stable_key(d), []).append(d)
+    changes = []
+    fields = ("price", "data", "voice", "broadband", "note")
+    for k, clist in cmap.items():
+        plist = pmap.get(k)
+        if not plist:
+            changes += [{**d, "kind": "新增", "date": TODAY} for d in clist]
+            continue
+        for i, new in enumerate(clist):
+            old = plist[min(i, len(plist) - 1)]
+            if any(norm(new.get(f)) != norm(old.get(f)) for f in fields):
+                changes.append({**new, "kind": "修改", "date": TODAY,
+                                "old": {f: old.get(f) for f in fields}})
+    for k, plist in pmap.items():
+        if k not in cmap:
+            changes += [{**d, "kind": "下架", "date": TODAY} for d in plist]
+    return changes
+
+
+def load_json(path):
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_json(path, obj):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default="data")
+    ap.add_argument("--carriers", default="mobile,unicom,telecom,gb")
+    ap.add_argument("--sections", default="")
+    ap.add_argument("--rebuild", action="store_true")
+    args = ap.parse_args()
+
+    carriers = [c.strip() for c in args.carriers.split(",") if c.strip()]
+    sections = [s.strip() for s in args.sections.split(",") if s.strip()] or None
+
+    rows = []
+    for op in carriers:
+        rows += do_mobile(sections) if op == "mobile" else do_common(op, sections)
+
+    # 稳定 id
+    for i, d in enumerate(rows):
+        key = re.sub(r"[^\w\u4e00-\u9fa5]", "", stable_key(d))[:40]
+        d["id"] = f"{key}-{i}"
+
+    prev_rows = load_json(os.path.join(args.out, "items.json")) or []
+    prev_hist = load_json(os.path.join(args.out, "history.json")) or []
+    changes = [] if args.rebuild else diff_rows(prev_rows, rows)
+    hist = (prev_hist + changes)[-150:]
+
+    meta = {
+        "timestamp": NOW, "date": TODAY, "count": len(rows),
+        "by_op": {op: sum(1 for d in rows if d["op"] == op) for op in carriers},
+        "by_province": {}, "changes": len(changes),
+    }
+    for d in rows:
+        k = d.get("province") or "全国"
+        meta["by_province"][k] = meta["by_province"].get(k, 0) + 1
+
+    save_json(os.path.join(args.out, "items.json"), rows)
+    save_json(os.path.join(args.out, "history.json"), hist)
+    # 本轮 diff 单独落盘：history.json 会累积，无法区分「这次新发生的变化」
+    save_json(os.path.join(args.out, "current_changes.json"), changes)
+    save_json(os.path.join(args.out, "latest.json"), meta)
+    print(f"\n完成：{len(rows)} 条资费 / {len(changes)} 条变化 -> {args.out}/")
+
+
+if __name__ == "__main__":
+    main()

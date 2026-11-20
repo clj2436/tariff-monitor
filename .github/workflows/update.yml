@@ -1,0 +1,88 @@
+name: 更新资费数据
+
+# 每 12 小时自动抓取一次（UTC），也可在 Actions 页面手动触发
+on:
+  schedule:
+    - cron: '47 0,12 * * *'   # UTC 00:47 / 12:47 = 北京 08:47 / 20:47
+  workflow_dispatch:          # 手动触发
+
+# 最小权限：只写仓库内容
+permissions:
+  contents: write
+
+# 防止并发运行导致数据竞争
+concurrency:
+  group: tariff-update
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install pycryptodome requests
+
+      - name: 抓取并构建资费数据
+        env:
+          # 可在仓库 Settings → Secrets and variables → Actions → Variables 中调节
+          TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
+          FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '300' }}
+        run: python3 scripts/build_data.py --out data
+
+      - name: 检查数据完整性
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          try:
+              meta = json.load(open('data/latest.json', encoding='utf-8'))
+              items = json.load(open('data/items.json', encoding='utf-8'))
+          except Exception as e:
+              print('数据文件读取失败:', e); sys.exit(1)
+          if meta.get('count', 0) < 10 or len(items) < 10:
+              print('数据量异常，拒绝提交。count=%s items=%s' % (meta.get('count'), len(items)))
+              sys.exit(1)
+          print('数据校验通过：%d 条资费，%d 条变更' % (len(items), meta.get('changes', 0)))
+          PY
+
+      # 钉钉提醒：在仓库 Settings → Secrets and variables → Actions 中配置
+      #   Secrets:   DINGTALK_WEBHOOK（必填，群机器人地址）
+      #              DINGTALK_SECRET（可选，机器人安全设置为「加签」时填）
+      #   Variables: WATCH_RULES（可选，默认移动+电信全部省份）
+      #              格式 mobile:江西|北京;telecom:新疆|湖南
+      #              DINGTALK_AT_MOBILES（可选，逗号分隔手机号，推送时 @）
+      #              SITE_URL（可选，资费专区地址，显示在消息末尾）
+      # 未配置 Webhook 或无命中变更时自动跳过，不影响数据提交。
+      - name: 推送钉钉变动提醒
+        continue-on-error: true
+        env:
+          WATCH_RULES: ${{ vars.WATCH_RULES || 'mobile:*;telecom:*' }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: python3 scripts/notify_dingtalk.py --input data/current_changes.json
+
+      - name: 提交数据
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "无数据变化，跳过提交"
+          else
+            git commit -m "chore: 自动更新资费数据 $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            git push
+          fi
