@@ -403,7 +403,7 @@ function bindFilters(withProv){
   $('fOwner').addEventListener('change',e=>{state.owner=e.target.value;state.page=1;render();});
   $('fSort').addEventListener('change',e=>{state.sort=e.target.value;state.page=1;render();});
   $('fAsc').addEventListener('click',()=>{state.asc=!state.asc;state.page=1;render();});
-  $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;render();});
+  $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;refreshResults();});
   $('fFav').addEventListener('click',()=>{state.favOnly=!state.favOnly;state.page=1;render();});
   $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.favOnly=false;state.page=1;render();});
   $('fCsv').addEventListener('click',exportCSV);
@@ -449,8 +449,16 @@ function renderListPage(withProv){
   const title=state.tab==='national'?'全国资费':'省份资费 · '+state.prov;
   const desc=state.tab==='national'?('各运营商官网公示的全国通用资费'+(window.__meta?'':'（示例）')):('以官网「适用地区」字段为准，默认江西'+(window.__meta?'':'（示例）'));
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">'+title+' <span class="pill">'+CARRIERS[state.op].name+'</span></h3><span class="card-desc">'+desc+'</span></div>'+
-    filtersHTML(withProv)+cardsHTML(rows)+'</div>';
+    filtersHTML(withProv)+'<div id="resultArea">'+cardsHTML(rows)+'</div></div>';
   bindFilters(withProv);bindTable();
+}
+/* 只刷新结果与计数，不重建筛选栏——避免搜索框输入时失焦 */
+function refreshResults(){
+  const area=$('resultArea');if(!area)return;
+  const rows=currentRows();
+  area.innerHTML=cardsHTML(rows);
+  if($('fCount')) $('fCount').textContent='共 '+rows.length+' 条';
+  bindTable();
 }
 function renderHistory(){
   let rows=HISTORY.filter(h=>h.op===state.op);
