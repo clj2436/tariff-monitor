@@ -86,6 +86,24 @@ def prov_from_scope(scope):
     return pinyin.get(scope, "全国")
 
 
+PROV_PINYIN = {
+    "北京": "beijing", "天津": "tianjin", "河北": "hebei", "山西": "shanxi",
+    "内蒙古": "neimenggu", "辽宁": "liaoning", "吉林": "jilin", "黑龙江": "heilongjiang",
+    "上海": "shanghai", "江苏": "jiangsu", "浙江": "zhejiang", "安徽": "anhui",
+    "福建": "fujian", "江西": "jiangxi", "山东": "shandong", "河南": "henan",
+    "湖北": "hubei", "湖南": "hunan", "广东": "guangdong", "广西": "guangxi",
+    "海南": "hainan", "重庆": "chongqing", "四川": "sichuan", "贵州": "guizhou",
+    "云南": "yunnan", "西藏": "xizang", "陕西": "shaanxi", "甘肃": "gansu",
+    "青海": "qinghai", "宁夏": "ningxia", "新疆": "xinjiang", "全国": "quanguo",
+}
+
+
+def scope_of(name):
+    """把中文省份名或拼音转成内部 scope（拼音）；已经是拼音则原样返回。"""
+    name = norm(name)
+    return PROV_PINYIN.get(name, name)
+
+
 def fmt_value(v):
     """把单个原始字段整理成可读文本；列表用「、」连接，空值丢弃。"""
     if v is None:
@@ -190,11 +208,21 @@ def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code
     }
 
 
+# ---------- 日志汇总 ----------
+def summary(op, ok, failed):
+    """每个运营商抓取结束后打印一行汇总；失败板块属接口限制，属预期内，不再逐条报错。"""
+    line = f"[{op}] 完成：成功 {ok} 个板块"
+    if failed:
+        line += f"，跳过 {len(failed)} 个（接口受限/无数据）：{'、'.join(failed)}"
+    print(line)
+
+
 # ---------- 各运营商抓取 + 归一化 ----------
 def do_mobile(sections):
     import fetcher
     from province_table import SECTION_INFO
     rows = []
+    failed = []          # 收集失败板块，最后统一汇总，避免逐条刷 stderr
     secs = sections or ["quanguo"] + [s for s, _, _ in
                                       __import__("province_table").PROVINCES]
     for sec in secs:
@@ -202,7 +230,7 @@ def do_mobile(sections):
         try:
             data = fetcher.fetch_section(sec, code)
         except Exception as e:
-            print(f"[移动] {sec} 抓取失败: {e}", file=sys.stderr)
+            failed.append(sec)
             continue
         pv = prov_from_scope(sec)
         for it in data.get("items") or []:
@@ -229,7 +257,7 @@ def do_mobile(sections):
                 norm(f.get("适用地区")) if norm(f.get("适用地区")) in PROV_CN else pv,
                 f.get("方案编号"), detail=detail,
             ))
-        print(f"[移动] {sec}: {len(data.get('items') or [])} 条")
+    summary(f"移动", len(secs) - len(failed), failed)
     return rows
 
 
@@ -237,6 +265,7 @@ def do_common(op, sections):
     """联通 / 电信 / 广电：统一 detail 结构。"""
     mod = __import__(f"{op}_pipeline", fromlist=["x"])
     rows = []
+    failed = []          # 失败/不完整板块统一收集，最后汇总
 
     # 构造 (scope, arg...) 任务
     if op == "gb":
@@ -248,10 +277,12 @@ def do_common(op, sections):
         jobs = [(sc, v[0], v[1], v[2]) for sc, v in alljobs.items()]
 
     wanted = set(sections) if sections else None
+    planned = 0
     for job in jobs:
         sc = job[0]
         if wanted and sc not in wanted:
             continue
+        planned += 1
         try:
             if op == "gb":
                 items, _failed = mod.fetch_scope(sc, job[1])
@@ -260,11 +291,11 @@ def do_common(op, sections):
             else:
                 d = mod.build_scope(sc, job[1], job[2], job[3])
                 if d.get("partial"):
-                    print(f"[联通] {sc} 采集不完整，跳过", file=sys.stderr)
+                    failed.append(sc)
                     continue
                 items = d.get("items") or []
-        except Exception as e:
-            print(f"[{op}] {sc} 抓取失败: {e}", file=sys.stderr)
+        except Exception:
+            failed.append(sc)
             continue
 
         pv = prov_from_scope(sc)
@@ -291,6 +322,7 @@ def do_common(op, sections):
                 raw_note, pv, d.get("reportNo") or it.get("id"), detail=d,
             ))
         print(f"[{op}] {sc}: {len(items)} 条")
+    summary(CARRIER_NAMES.get(op, op), planned - len(failed), failed)
     return rows
 
 
@@ -349,7 +381,15 @@ def main():
     args = ap.parse_args()
 
     carriers = [c.strip() for c in args.carriers.split(",") if c.strip()]
-    sections = [s.strip() for s in args.sections.split(",") if s.strip()] or None
+    sections = [s.strip() for s in args.sections.split(",") if s.strip()]
+    # 也支持 workflow 通过 TRACK_PROVINCES 传入（中文省名或拼音）
+    env_prov = os.environ.get("TRACK_PROVINCES", "").strip()
+    if env_prov:
+        sections += [x.strip() for x in re.split(r"[,，\s]+", env_prov) if x.strip()]
+    # 中文 -> 拼音 scope
+    sections = [scope_of(s) for s in sections]
+    # 去重保序
+    sections = list(dict.fromkeys(sections)) or None
 
     rows = []
     for op in carriers:
@@ -362,6 +402,21 @@ def main():
 
     prev_rows = load_json(os.path.join(args.out, "items.json")) or []
     prev_hist = load_json(os.path.join(args.out, "history.json")) or []
+
+    # 合并策略：按 (运营商, 省份) 板块合并。本轮成功抓到的板块整批替换旧数据，
+    # 失败/受限板块保留旧数据，避免接口抖动把已有数据清空。
+    # 真实抓取中一个板块要么整批成功、要么整批失败，故下架检测仍由 diff_rows 正确得出。
+    def block_key(d):
+        return (d.get("op"), d.get("province") or "全国")
+    fresh_blocks = {block_key(d) for d in rows}
+    kept = [d for d in prev_rows if block_key(d) not in fresh_blocks]
+    merged = kept + rows
+    # 去重：按稳定编号，新的覆盖旧的
+    seen = {}
+    for d in merged:
+        seen[stable_key(d) + "|" + str(d.get("name", ""))] = d
+    rows = list(seen.values())
+
     changes = [] if args.rebuild else diff_rows(prev_rows, rows)
     hist = (prev_hist + changes)[-150:]
 

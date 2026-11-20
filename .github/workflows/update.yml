@@ -39,7 +39,8 @@ jobs:
           # 可在仓库 Settings → Secrets and variables → Actions → Variables 中调节
           TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
-          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '300' }}
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
+        # TRACK_PROVINCES 由脚本直接读取（支持中文省名/拼音），留空则全量抓取
         run: python3 scripts/build_data.py --out data
 
       - name: 检查数据完整性

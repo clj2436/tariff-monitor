@@ -216,7 +216,7 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;lin
       <span class="tag-demo" id="dataTag">加载中…</span>
       <span class="sync" id="sync">--</span>
       <button class="btn" id="checkBtn">检测资费</button>
-      <button class="btn" id="switchBtn">切换 ›</button>
+      <button class="btn" id="switchBtn">移动 · 江西 ▾</button>
       <button class="btn" id="themeBtn">深色</button>
     </div>
   </header>
@@ -229,9 +229,16 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;lin
 </div>
 
 <div class="modal hidden" id="carrierModal">
-  <div class="modal-box">
-    <div class="modal-head"><h3>切换运营商</h3><button class="close" data-close>×</button></div>
-    <div class="modal-body"><div class="opt-list" id="carrierOpts"></div></div>
+  <div class="modal-box wide">
+    <div class="modal-head"><h3>切换运营商 / 省份</h3><button class="close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="pub-group-title">选择运营商</div>
+      <div class="opt-list" id="carrierOpts" style="margin-bottom:8px"></div>
+      <div class="pub-group-title">选择省份</div>
+      <div class="search" style="margin-bottom:10px"><input type="text" id="provSearch2" placeholder="搜索省份" style="width:100%"></div>
+      <div class="prov-grid" id="provGrid2"></div>
+      <div class="detail-actions"><button class="btn btn-primary" id="switchDone">完成</button></div>
+    </div>
   </div>
 </div>
 <div class="modal hidden" id="provinceModal">
@@ -632,17 +639,35 @@ document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.add('hidden');}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal').forEach(m=>m.classList.add('hidden'));});
 
+// 顶部按钮始终显示当前「运营商 · 省份」
+function updateSwitchLabel(){
+  const btn=$('switchBtn');if(!btn)return;
+  btn.textContent=CARRIERS[state.op].short+' · '+state.prov+' ▾';
+}
 function renderCarrierOpts(){
   $('carrierOpts').innerHTML=Object.keys(CARRIERS).map(k=>'<button class="opt'+(state.op===k?' on':'')+'" data-op="'+k+'" style="--oc:'+CARRIERS[k].color+'">'+
     '<span class="opt-ico">'+CARRIERS[k].short.charAt(0)+'</span><span class="opt-main"><div class="opt-name">'+CARRIERS[k].name+'</div><div class="opt-desc">'+CARRIERS[k].desc+'</div></span>'+(state.op===k?'<span>✓</span>':'')+'</button>').join('');
-  $('carrierOpts').querySelectorAll('[data-op]').forEach(b=>b.addEventListener('click',()=>{state.op=b.dataset.op;state.page=1;renderCarrierOpts();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name);}));
+  $('carrierOpts').querySelectorAll('[data-op]').forEach(b=>b.addEventListener('click',()=>{
+    state.op=b.dataset.op;state.page=1;
+    renderCarrierOpts();updateSwitchLabel();render();toast('已切换到'+CARRIERS[state.op].name);
+  }));
 }
-function renderProvGrid(q=''){
+function renderProvGrid(q='',targetId='provGrid',inputId='provSearch'){
   const list=PROVINCES.filter(p=>p.includes(q.trim()));
-  $('provGrid').innerHTML=list.map(p=>'<button class="prov-btn'+(state.prov===p?' on':'')+'" data-pv="'+p+'">'+p+'</button>').join('')||'<div class="empty" style="grid-column:1/-1">未找到省份</div>';
-  $('provGrid').querySelectorAll('[data-pv]').forEach(b=>b.addEventListener('click',()=>{state.prov=b.dataset.pv;state.page=1;renderProvGrid($('provSearch').value);render();$('provinceModal').classList.add('hidden');toast('已切换到'+state.prov);}));
+  const el=$(targetId);if(!el)return;
+  el.innerHTML=list.map(p=>'<button class="prov-btn'+(state.prov===p?' on':'')+'" data-pv="'+p+'">'+p+'</button>').join('')||'<div class="empty" style="grid-column:1/-1">未找到省份</div>';
+  el.querySelectorAll('[data-pv]').forEach(b=>b.addEventListener('click',()=>{
+    state.prov=b.dataset.pv;state.page=1;
+    const inp=$(inputId);renderProvGrid(inp?inp.value:'',targetId,inputId);
+    updateSwitchLabel();render();
+    if(targetId==='provGrid'){$('provinceModal').classList.add('hidden');toast('已切换到'+state.prov);}
+  }));
 }
-function openProvinceModal(){renderProvGrid();$('provSearch').value='';openModal('provinceModal');}
+function openProvinceModal(){renderProvGrid('','provGrid','provSearch');$('provSearch').value='';openModal('provinceModal');}
+function openSwitchModal(){
+  renderCarrierOpts();renderProvGrid($('provSearch2').value,'provGrid2','provSearch2');
+  openModal('carrierModal');
+}
 let detailId=null;
 function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 // 把长说明按中文序号 / 数字序号 / 分号拆成段落，便于逐条阅读
@@ -739,7 +764,9 @@ $('dFav').addEventListener('click',()=>{
 });
 
 /* ---------- 事件 ---------- */
-$('switchBtn').addEventListener('click',()=>{renderCarrierOpts();openModal('carrierModal');});
+$('switchBtn').addEventListener('click',openSwitchModal);
+$('provSearch2').addEventListener('input',e=>renderProvGrid(e.target.value,'provGrid2','provSearch2'));
+$('switchDone').addEventListener('click',()=>{updateSwitchLabel();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name+' · '+state.prov);});
 $('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.setItem('tariff_dark',state.dark?'1':'0');applyTheme();});
 $('checkBtn').addEventListener('click',async()=>{
   const real=$('dataTag').textContent==='真实数据';
@@ -831,7 +858,7 @@ async function loadData(){
 
 /* ---------- 启动 ---------- */
 (async function init(){
-  applyTheme();renderNav();render();
+  applyTheme();updateSwitchLabel();renderNav();render();
   await loadData();
 })();
 </script>
