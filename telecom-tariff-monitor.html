@@ -119,6 +119,41 @@ tbody tr:hover{background:var(--card2)}
 .pager-btns button{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px}
 .pager-btns button:disabled{opacity:.4;cursor:not-allowed}
 
+/* 订阅推送配置 */
+.sub-wrap{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.sub-wrap{grid-template-columns:1fr}}
+.sub-sec{padding:16px 18px}
+.sub-sec h4{margin:0 0 4px;font-size:13.5px;font-weight:700}
+.sub-hint{font-size:11.5px;color:var(--muted);margin:0 0 14px;line-height:1.6}
+.sub-op{margin-bottom:16px}
+.sub-op-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sub-op-name{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700}
+.sub-op-dot{width:9px;height:9px;border-radius:50%;background:var(--oc,var(--blue))}
+.sub-mini{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:5px;padding:3px 8px;font-size:11px;font-weight:600}
+.sub-mini:hover{color:var(--blue);border-color:var(--blue)}
+.sub-chips{display:flex;flex-wrap:wrap;gap:6px}
+.sub-chip{border:1px solid var(--border);background:var(--card2);color:var(--muted);border-radius:6px;padding:5px 10px;font-size:11.5px;font-weight:600;transition:.12s}
+.sub-chip:hover{border-color:var(--oc,var(--blue))}
+.sub-chip.on{background:var(--oc,var(--blue));border-color:var(--oc,var(--blue));color:#fff}
+.sub-field{margin-bottom:13px}
+.sub-field label{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:5px}
+.sub-field input,.sub-field textarea{width:100%;border:1px solid var(--border);background:var(--card2);color:var(--text);border-radius:7px;padding:8px 10px;font-size:12.5px;outline:none}
+.sub-field input:focus,.sub-field textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.sub-field textarea{resize:vertical;min-height:56px}
+.sub-note{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.6}
+.sub-note code{background:var(--card2);border:1px solid var(--border);padding:1px 5px;border-radius:4px;font-size:10.5px}
+.sub-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.sub-status{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.6;display:none;white-space:pre-line}
+.sub-status.show{display:block}
+.sub-status.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.sub-status.err{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.sub-status.info{background:var(--blue-soft);color:var(--blue);border:1px solid var(--border)}
+body.dark .sub-status.ok{background:#14532d;color:#86efac;border-color:#166534}
+body.dark .sub-status.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
+.sub-summary{font-size:11.5px;color:var(--muted);padding:9px 11px;background:var(--card2);border:1px solid var(--border);border-radius:7px;margin-bottom:12px;line-height:1.7}
+.sub-summary b{color:var(--text)}
+.sub-warn{font-size:11px;color:var(--warn);margin-top:6px;line-height:1.6}
+
 /* 时间线 */
 .timeline{padding:8px 18px 16px;max-height:560px;overflow-y:auto}
 .tl-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px dashed var(--border)}
@@ -282,6 +317,14 @@ const CARRIERS = {
 };
 const PROVINCES=['全国','北京','天津','河北','山西','内蒙古','辽宁','吉林','黑龙江','上海','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','广西','海南','重庆','四川','贵州','云南','西藏','陕西','甘肃','青海','宁夏','新疆'];
 const TYPES=['套餐','加装包','营销活动'];
+// 订阅规则仅存本机勾选，Token 永不落盘。结构 {mobile:['江西'], telecom:['新疆'], ...}
+function loadSubRules(){
+  try{
+    const r=JSON.parse(localStorage.getItem('tariff_sub_rules')||'null');
+    if(r&&typeof r==='object') return r;
+  }catch(e){}
+  return {mobile:['江西'],telecom:['新疆'],unicom:[],gb:[]};
+}
 const OWNERS=['个人','政企'];
 const TPL={
   mobile:[
@@ -357,6 +400,7 @@ HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
 /* ---------- 状态 ---------- */
 const state={tab:'overview',op:'mobile',prov:'江西',type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,page:1,size:12,
   search:{op:'all',field:'any',kw:'',mode:'contains'},
+  sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
 const $=id=>document.getElementById(id);
 const money=n=>n===0?'0元':'¥'+n;
@@ -377,7 +421,7 @@ function opBadge(op){return '<span class="op-badge" style="--oc:'+CARRIERS[op].c
 function applyTheme(){document.body.classList.toggle('dark',state.dark);$('themeBtn').textContent=state.dark?'浅色':'深色';}
 
 /* ---------- 导航 ---------- */
-const TABS=[['overview','数据总览'],['national','全国资费'],['province','省份资费'],['search','字段检索'],['history','变化历史'],['about','关于本页']];
+const TABS=[['overview','数据总览'],['national','全国资费'],['province','省份资费'],['search','字段检索'],['history','变化历史'],['subscribe','订阅推送'],['about','关于本页']];
 function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-btn'+(state.tab===k?' on':'')+'" data-tab="'+k+'">'+l+'</button>').join('');
   $('nav').querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;state.page=1;renderNav();render();}));}
 
@@ -609,6 +653,146 @@ function renderHistory(){
   });
   draw();
 }
+/* ---------- 订阅推送配置 ---------- */
+const SUB_REPO='clj2436/tariff-monitor';       // 同步目标仓库
+const SUB_CONFIG_PATH='data/watch_config.json'; // 配置文件路径
+function subCount(){return Object.values(state.sub.rules).reduce((n,a)=>n+(a?a.length:0),0);}
+function subSummaryText(){
+  const parts=Object.keys(CARRIERS).map(op=>{
+    const ps=state.sub.rules[op]||[];
+    if(!ps.length) return '';
+    return CARRIERS[op].short+'('+ps.map(p=>p==='*'?'全部':p).join('、')+')';
+  }).filter(Boolean);
+  return parts.length?parts.join('　'):'未选择任何关注项';
+}
+function renderSubscribe(){
+  const s=state.sub;
+  // 运营商 × 省份勾选矩阵
+  const opBlocks=Object.keys(CARRIERS).map(op=>{
+    const c=CARRIERS[op], sel=s.rules[op]||[];
+    const allOn=sel.includes('*');
+    const chips=PROVINCES.map(p=>{
+      const on=allOn||sel.includes(p);
+      return '<button type="button" class="sub-chip'+(on?' on':'')+'" data-sub-op="'+op+'" data-sub-pv="'+p+'" style="--oc:'+c.color+'">'+p+'</button>';
+    }).join('');
+    return '<div class="sub-op" style="--oc:'+c.color+'">'+
+      '<div class="sub-op-head"><div class="sub-op-name"><span class="sub-op-dot"></span>'+c.name+'　<span style="color:var(--muted);font-weight:400;font-size:11px">'+(allOn?'全部省份':sel.length+' 个省份')+'</span></div>'+
+      '<div style="display:flex;gap:6px"><button type="button" class="sub-mini" data-sub-all="'+op+'">'+(allOn?'取消全部':'全部')+'</button><button type="button" class="sub-mini" data-sub-clear="'+op+'">清空</button></div></div>'+
+      '<div class="sub-chips">'+chips+'</div></div>';
+  }).join('');
+
+  $('view').innerHTML=
+    '<div class="sub-wrap">'+
+    '<div class="card sub-sec">'+
+      '<h4>① 关注的运营商与省份</h4>'+
+      '<p class="sub-hint">勾选后，这些地区的资费发生<b>新增 / 修改 / 下架</b>时会推送到钉钉。可跨运营商、多选多个省份。</p>'+
+      '<div class="sub-summary">当前关注：<b>'+subSummaryText()+'</b><br>共 '+subCount()+' 个关注项</div>'+
+      opBlocks+
+      '<div class="sub-actions"><button type="button" class="btn" id="subSelAll">全选全部省份</button><button type="button" class="btn" id="subClearAll">清空所有</button></div>'+
+    '</div>'+
+    '<div class="card sub-sec">'+
+      '<h4>② 钉钉机器人设置</h4>'+
+      '<p class="sub-hint">Webhook 与加签密钥属于敏感信息，请在仓库 <code>Settings → Secrets and variables → Actions</code> 中配置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填）。下方仅需填写可选的通知补充项。</p>'+
+      '<div class="sub-field"><label>@ 手机号（可选，多个用逗号分隔）</label><input type="text" id="subAt" placeholder="13800000000,13900000000" value="'+escHtml(s.atMobiles)+'"></div>'+
+      '<div class="sub-field"><label>单条消息最多展示变更数</label><input type="text" id="subMax" value="'+s.maxItems+'" inputmode="numeric"></div>'+
+      '<p class="sub-note">超过上限的变更会合并为「另有 N 条未展示」，避免消息过长触发钉钉限流。</p>'+
+      '<h4 style="margin-top:20px">③ 同步到仓库</h4>'+
+      '<p class="sub-hint">填入 GitHub 个人访问令牌（PAT），点击同步即可把上面的关注规则写入仓库 <code>'+SUB_CONFIG_PATH+'</code>，Actions 下次抓取时自动读取。Token 只在本次操作中使用，不会保存。</p>'+
+      '<div class="sub-field"><label>GitHub Personal Access Token</label><input type="password" id="subToken" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" value="'+escHtml(s.token)+'"></div>'+
+      '<p class="sub-warn">⚠ 需用细粒度 Token，仅授予本仓库 Contents 读写权限。请勿使用高权限 Token；Token 不会写入仓库或本地存储。</p>'+
+      '<div class="sub-actions"><button type="button" class="btn on" id="subSync">同步到 GitHub</button><button type="button" class="btn" id="subPreview">预览配置</button></div>'+
+      '<div class="sub-status" id="subStatus"></div>'+
+    '</div>'+
+    '</div>';
+
+  // 绑定：单个省份勾选
+  $('view').querySelectorAll('[data-sub-op]').forEach(b=>b.addEventListener('click',()=>{
+    const op=b.dataset.subOp,pv=b.dataset.subPv;
+    toggleSub(op,pv);renderSubscribe();
+  }));
+  // 单运营商全选 / 清空
+  $('view').querySelectorAll('[data-sub-all]').forEach(b=>b.addEventListener('click',()=>{
+    state.sub.rules[b.dataset.subAll]=['*'];renderSubscribe();
+  }));
+  $('view').querySelectorAll('[data-sub-clear]').forEach(b=>b.addEventListener('click',()=>{
+    state.sub.rules[b.dataset.subClear]=[];renderSubscribe();
+  }));
+  $('subSelAll').addEventListener('click',()=>{
+    Object.keys(CARRIERS).forEach(op=>state.sub.rules[op]=['*']);renderSubscribe();
+  });
+  $('subClearAll').addEventListener('click',()=>{
+    Object.keys(CARRIERS).forEach(op=>state.sub.rules[op]=[]);renderSubscribe();
+  });
+  $('subAt').addEventListener('input',e=>{s.atMobiles=e.target.value;localStorage.setItem('tariff_at_mobiles',e.target.value);});
+  $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
+  $('subToken').addEventListener('input',e=>{s.token=e.target.value;});
+  $('subPreview').addEventListener('click',previewSubConfig);
+  $('subSync').addEventListener('click',syncSubConfig);
+}
+function toggleSub(op,pv){
+  const arr=state.sub.rules[op]||(state.sub.rules[op]=[]);
+  const i=arr.indexOf(pv);
+  if(pv==='*'){state.sub.rules[op]=i>=0?[]:['*'];}
+  else{
+    if(arr.includes('*')) state.sub.rules[op]=[pv]; // 从"全部"切到单个
+    else if(i>=0) arr.splice(i,1);
+    else arr.push(pv);
+    state.sub.rules[op]=arr;
+  }
+  localStorage.setItem('tariff_sub_rules',JSON.stringify(state.sub.rules));
+}
+function buildSubConfig(){
+  const s=state.sub;
+  const rules=Object.keys(CARRIERS).map(op=>({op,provinces:(s.rules[op]||[]).slice()})).filter(r=>r.provinces.length);
+  const at=s.atMobiles.split(',').map(x=>x.trim()).filter(Boolean);
+  return {version:1,updated_at:new Date().toISOString().slice(0,19).replace('T',' '),rules,at_mobiles:at,max_items:s.maxItems,site_url:''};
+}
+function subStatus(msg,type){
+  const el=$('subStatus');el.className='sub-status show '+(type||'info');el.textContent=msg;
+}
+function previewSubConfig(){
+  const cfg=buildSubConfig();
+  const ruleText=cfg.rules.map(r=>r.op+' → '+r.provinces.map(p=>p==='*'?'全部':p).join('、')).join('\n')||'（无关注项）';
+  subStatus('预览配置：\n'+ruleText+'\n@：'+(cfg.at_mobiles.join('、')||'无')+'\n每消息上限：'+cfg.max_items+' 条\n\n注意：预览不会写入仓库。','info');
+}
+async function syncSubConfig(){
+  const s=state.sub, token=(s.token||'').trim();
+  if(subCount()===0){subStatus('请先勾选至少一个关注的运营商/省份。','err');return;}
+  if(!token){subStatus('请先填写 GitHub Personal Access Token（需本仓库 Contents 写权限）。','err');return;}
+  const btn=$('subSync');btn.disabled=true;btn.textContent='同步中…';
+  subStatus('正在读取现有配置…','info');
+  try{
+    const api='https://api.github.com/repos/'+SUB_REPO+'/contents/'+SUB_CONFIG_PATH;
+    const headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+    // 1) 先 GET 现有文件拿 sha（更新文件必须带 sha）
+    let sha=null;
+    const cur=await fetch(api,{headers});
+    if(cur.ok){const j=await cur.json();sha=j.sha;}
+    else if(cur.status!==404){
+      const j=await cur.json().catch(()=>({}));
+      throw new Error('读取配置失败 HTTP '+cur.status+'：'+(j.message||'请检查 Token 权限'));
+    }
+    // 2) 上传新配置（内容 base64 编码）
+    const cfg=buildSubConfig();
+    const content=btoa(unescape(encodeURIComponent(JSON.stringify(cfg,null,2)+'\n')));
+    const payload={message:'chore: 更新钉钉订阅关注规则（网页配置）',content,
+      branch:'main'};
+    if(sha) payload.sha=sha;
+    subStatus('正在写入仓库…','info');
+    const put=await fetch(api,{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!put.ok){
+      const j=await put.json().catch(()=>({}));
+      throw new Error('写入失败 HTTP '+put.status+'：'+(j.message||'Token 可能缺少 Contents 写权限'));
+    }
+    s.token=''; // 同步成功后清空内存中的 Token
+    if($('subToken')) $('subToken').value='';
+    subStatus('✓ 已同步到仓库！Actions 下次抓取（每日 08:47 / 20:47，或手动触发）后将按新规则推送钉钉。\n当前关注 '+subCount()+' 项。','ok');
+  }catch(e){
+    subStatus('同步失败：'+e.message+'\n\n提示：请使用细粒度 Token 并授予本仓库 Contents 读写权限。','err');
+  }finally{
+    btn.disabled=false;btn.textContent='同步到 GitHub';
+  }
+}
 function renderAbout(){
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">关于本页</h3></div><div class="about">'+
     '<p>本页面展示各运营商「全网资费」及各省的公开资费资料。数据由 GitHub Actions 定时抓取运营商官网资费专区，比对变化后写入仓库 <code>data/</code> 目录，页面通过 <code>raw.githubusercontent.com</code> 直接读取——无需服务器、无需数据库。</p>'+
@@ -616,9 +800,9 @@ function renderAbout(){
     '<h3>数据来源</h3><p>真实数据以中国移动、中国联通、中国电信、中国广电官网公开资费专区为准。</p>'+
     '<h3>省份切换</h3><p>「省份资费」页可自助选择省份；变化历史同样按省份标注。默认江西。</p>'+
     '<h3>更新方式</h3><p><code>.github/workflows/update.yml</code> 每日两次（北京 08:47 / 20:47）自动抓取，也可在 Actions 页手动触发。抓取后统一字段、按稳定业务编号做 diff（价格/流量变动记为「修改」而非新增+下架），结果 commit 回仓库。页面刷新即读最新数据。</p>'+
-    '<h3>变动提醒</h3><p>可配置钉钉群机器人推送关注的资费变动：在仓库 Settings → Secrets and variables → Actions 中设置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填写），Variables 中设置 <code>WATCH_RULES</code> 指定范围，例如 <code>mobile:江西|北京;telecom:新疆</code>。命中新增、修改或下架时自动推送。</p>'+
+    '<h3>变动提醒</h3><p>在「订阅推送」页勾选关注的运营商与省份（可多选、跨运营商），填入 GitHub Token 一键同步即可。Webhook 等敏感信息请在仓库 Settings → Secrets and variables → Actions 中设置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填写）。命中新增、修改或下架时自动推送；遇钉钉限流会自动退避重试，相同变更不重复推送。</p>'+
     '<h3>数据口径</h3><p>以官网「适用地区」「适用范围」字段为准，仅供参考。分类维度为 <code>套餐 / 加装包 / 营销活动</code> × <code>个人 / 政企</code>。</p>'+
-    '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、业务名称搜索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、深色模式。</p>'+
+    '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、字段级检索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、钉钉订阅推送配置、深色模式。</p>'+
     '<h3>免责声明</h3><p>展示内容可能存在延迟或误差，办理业务请以营业厅 / 官方客服热线信息为准。</p>'+
     '</div></div>';
   const meta=window.__meta;
@@ -632,6 +816,7 @@ function render(){
   else if(state.tab==='province') renderListPage(true);
   else if(state.tab==='search') renderFieldSearch();
   else if(state.tab==='history') renderHistory();
+  else if(state.tab==='subscribe') renderSubscribe();
   else renderAbout();
 }
 

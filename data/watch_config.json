@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-20 00:00:00",
+  "rules": [
+    {"op": "mobile", "provinces": ["江西"]},
+    {"op": "telecom", "provinces": ["新疆"]}
+  ],
+  "at_mobiles": [],
+  "max_items": 30,
+  "site_url": ""
+}

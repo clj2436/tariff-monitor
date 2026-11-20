@@ -33,6 +33,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -135,26 +136,115 @@ def build_markdown(changes, rules, site_url, max_items):
     return "\n".join(lines)
 
 
-def send(webhook, secret, text, at_mobiles):
-    url = webhook
-    if secret:
-        ts = str(int(time.time() * 1000))
-        sign_str = "%s\n%s" % (ts, secret)
-        digest = hmac.new(secret.encode("utf-8"), sign_str.encode("utf-8"), digestmod=hashlib.sha256).digest()
-        sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
-        url += ("&" if "?" in url else "?") + "timestamp=%s&sign=%s" % (ts, sign)
+# 钉钉限流相关错误码/状态：130101 请求过于频繁、130102 机器人被限流、429 Too Many Requests
+_RATELIMIT_CODES = {130101, 130102}
+_RATELIMIT_MSG = ("too many", "频率", "频繁", "限流", "rate limit", "flow control")
+
+
+def _is_ratelimit(http_err=None, result=None):
+    if http_err is not None and getattr(http_err, "code", None) == 429:
+        return True
+    if result:
+        if result.get("errcode") in _RATELIMIT_CODES:
+            return True
+        msg = str(result.get("errmsg", "")).lower()
+        if any(k in msg for k in _RATELIMIT_MSG):
+            return True
+    return False
+
+
+def send(webhook, secret, text, at_mobiles, max_retries=4):
+    """发送钉钉消息；遇限流按 2/4/8/16s 指数退避重试，最多 max_retries 次。
+
+    加签时间戳每次重试都重新生成——钉钉对 timestamp 有 1 小时有效性校验，
+    且退避重试可能跨越秒边界，复用旧签名会被判为非法。
+    """
     payload = {"msgtype": "markdown", "markdown": {"title": "资费变动提醒", "text": text}}
     if at_mobiles:
         payload["at"] = {"atMobiles": at_mobiles, "isAtAll": False}
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json; charset=utf-8"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        result = json.loads(resp.read().decode("utf-8"))
-    if result.get("errcode", 0) != 0:
-        raise RuntimeError("钉钉返回 errcode=%s errmsg=%s" % (result.get("errcode"), result.get("errmsg")))
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    last = None
+    for attempt in range(max_retries + 1):
+        url = webhook
+        if secret:
+            ts = str(int(time.time() * 1000))
+            sign_str = "%s\n%s" % (ts, secret)
+            digest = hmac.new(secret.encode("utf-8"), sign_str.encode("utf-8"), digestmod=hashlib.sha256).digest()
+            sign = urllib.parse.quote_plus(base64.b64encode(digest).decode("utf-8"))
+            url += ("&" if "?" in url else "?") + "timestamp=%s&sign=%s" % (ts, sign)
+        req = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            code = result.get("errcode", 0)
+            if code == 0:
+                return
+            last = RuntimeError("钉钉返回 errcode=%s errmsg=%s" % (code, result.get("errmsg")))
+            if _is_ratelimit(result=result) and attempt < max_retries:
+                wait = 2 ** (attempt + 1)
+                print("[钉钉] 触发限流，%ds 后重试(%d/%d)" % (wait, attempt + 2, max_retries + 1), file=sys.stderr)
+                time.sleep(wait)
+                continue
+            raise last
+        except urllib.error.HTTPError as e:
+            last = e
+            if _is_ratelimit(http_err=e) and attempt < max_retries:
+                wait = 2 ** (attempt + 1)
+                print("[钉钉] HTTP 429 限流，%ds 后重试(%d/%d)" % (wait, attempt + 2, max_retries + 1), file=sys.stderr)
+                time.sleep(wait)
+                continue
+            raise
+        except urllib.error.URLError as e:
+            last = e
+            # 网络类错误也做有限退避，避免瞬时抖动导致整轮推送失败
+            if attempt < max_retries:
+                wait = 2 ** (attempt + 1)
+                print("[钉钉] 网络异常，%ds 后重试(%d/%d): %s" % (wait, attempt + 2, max_retries + 1, e), file=sys.stderr)
+                time.sleep(wait)
+                continue
+            raise
+    if last:
+        raise last
+
+
+def rules_from_config(config_path):
+    """从网页同步的配置文件读取关注规则。
+
+    配置结构（data/watch_config.json）：
+      {
+        "version": 1,
+        "rules": [{"op": "mobile", "provinces": ["江西", "北京"]},
+                  {"op": "telecom", "provinces": ["新疆"]}],
+        "at_mobiles": ["138..."],   # 可选，覆盖环境变量
+        "max_items": 30             # 可选，覆盖环境变量
+      }
+    返回 (rules, config_dict)；文件不存在/格式错误时返回 ([], {})。
+    """
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (FileNotFoundError, ValueError, OSError):
+        return [], {}
+    if not isinstance(cfg, dict):
+        return [], {}
+    rules = []
+    for item in cfg.get("rules") or []:
+        if not isinstance(item, dict):
+            continue
+        op = OP_ALIAS.get(str(item.get("op", "")).strip().lower(), str(item.get("op", "")).strip())
+        if op not in {"mobile", "telecom", "unicom", "gb", "*"}:
+            continue
+        provinces = item.get("provinces") or []
+        if isinstance(provinces, str):
+            provinces = [provinces]
+        for pv in provinces:
+            pv = str(pv).strip()
+            if pv:
+                rules.append((op, pv))
+    return rules, cfg
 
 
 def load_changes(path):
@@ -173,6 +263,10 @@ def main():
     ap = argparse.ArgumentParser(description="资费变动钉钉提醒")
     ap.add_argument("--input", default=os.environ.get("CHANGES_FILE", "data/current_changes.json"))
     ap.add_argument("--rules", default=os.environ.get("WATCH_RULES", "mobile:*;telecom:*"))
+    ap.add_argument("--config", default=os.environ.get("WATCH_CONFIG", "data/watch_config.json"),
+                    help="网页同步的关注规则配置文件（优先于 --rules）")
+    ap.add_argument("--state", default=os.environ.get("NOTIFY_STATE", "data/.notify_state.json"),
+                    help="推送指纹状态文件，用于去重")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
     ap.add_argument("--max-items", type=int, default=int(os.environ.get("NOTIFY_MAX_ITEMS", "30")))
     args = ap.parse_args()
@@ -181,7 +275,10 @@ def main():
     if not changes:
         print("本轮无变更，跳过推送。")
         return 0
-    rules = parse_rules(args.rules)
+
+    # 优先用网页配置文件的规则；无配置文件时回退到 WATCH_RULES 环境变量
+    cfg_rules, cfg = rules_from_config(args.config)
+    rules = cfg_rules or parse_rules(args.rules)
     if not rules:
         print("关注规则为空，跳过推送。")
         return 0
@@ -190,8 +287,30 @@ def main():
         print("本轮 %d 条变更均未命中关注规则，跳过推送。" % len(changes))
         return 0
 
-    text = build_markdown(hit, rules, os.environ.get("SITE_URL", ""), args.max_items)
-    at = [m.strip() for m in os.environ.get("DINGTALK_AT_MOBILES", "").split(",") if m.strip()]
+    # 指纹去重：同一批变更已被推送过则跳过，避免 Actions 重跑/手动触发重复打扰
+    fingerprint = hashlib.md5(
+        json.dumps(sorted([json.dumps(h, ensure_ascii=False, sort_keys=True) for h in hit]),
+                   ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    try:
+        with open(args.state, encoding="utf-8") as f:
+            prev_fp = (json.load(f) or {}).get("fingerprint")
+    except (FileNotFoundError, ValueError, OSError):
+        prev_fp = None
+    if prev_fp == fingerprint:
+        print("本批变更与上次推送内容相同，跳过重复推送。")
+        return 0
+
+    # 配置项覆盖环境变量（at_mobiles / max_items）
+    max_items = int(cfg.get("max_items", args.max_items)) if cfg else args.max_items
+    at_mobiles = cfg.get("at_mobiles") if (cfg and cfg.get("at_mobiles") is not None) else None
+    if at_mobiles is None:
+        at = [m.strip() for m in os.environ.get("DINGTALK_AT_MOBILES", "").split(",") if m.strip()]
+    else:
+        at = [str(m).strip() for m in at_mobiles if str(m).strip()]
+    site_url = (cfg.get("site_url") if cfg and cfg.get("site_url") else "") or os.environ.get("SITE_URL", "")
+
+    text = build_markdown(hit, rules, site_url, max_items)
     if at:
         text += "\n\n" + " ".join("@" + m for m in at)
 
@@ -204,6 +323,14 @@ def main():
         print("未配置 DINGTALK_WEBHOOK，跳过推送（可用 --dry-run 预览）。")
         return 0
     send(webhook, os.environ.get("DINGTALK_SECRET", ""), text, at)
+    # 推送成功后写入指纹
+    try:
+        os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
+        with open(args.state, "w", encoding="utf-8") as f:
+            json.dump({"fingerprint": fingerprint, "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "count": len(hit)}, f, ensure_ascii=False)
+    except OSError as e:
+        print("写入推送指纹失败（不影响推送）：%s" % e, file=sys.stderr)
     print("钉钉提醒已推送：%d 条命中变更。" % len(hit))
     return 0
 
