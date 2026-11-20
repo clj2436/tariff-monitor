@@ -130,28 +130,61 @@ def build_note(detail, province=""):
     return "；".join(parts)
 
 
-def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code, detail=None):
-    detail = detail or {}
-    full_note = build_note(detail) or norm(note)
-    # 结构化详情字段：供前端详情弹窗展示；不进入 diff 比较，避免抓取抖动造成假变更
-    keys = {
-        "sms": ("sms",), "orient": ("orientTraffic", "定向流量"),
-        "channel": ("saleChnl", "channel", "销售渠道"),
-        "useScope": ("useScope", "适用范围"), "service": ("serviceContent", "服务内容"),
-        "validPeriod": ("validPeriod", "有效期"), "unsubscribe": ("unsubscribe", "退订方式"),
-        "inNetReq": ("inNetReq", "在网要求"), "iptv": ("iptv",),
-    }
+# 详情字段映射：输出键 -> (原始英文键候选..., 中文键候选...)
+# 完整覆盖官方「资费公示专区」详情页字段，供详情弹窗与字段级检索使用。
+DETAIL_KEYS = [
+    ("scope",      ("useScope", "适用范围", "适用对象")),
+    ("region",     ("applicableArea", "适用地区", "通用地区", "useArea")),
+    ("channel",    ("saleChnl", "channel", "销售渠道", "销售渠道")),
+    ("onDate",     ("onDate", "onlinePeriod", "上线日期", "上架日期")),
+    ("offDate",    ("offDate", "下线日期", "下架日期")),
+    ("validPeriod",("validPeriod", "有效期限", "有效期")),
+    ("inNetReq",   ("inNetReq", "duration", "在网要求")),
+    ("unsubscribe",("unsubscribe", "退订方式")),
+    ("responsibility",("responsibility", "违约责任", "责任义务")),
+    ("sms",        ("sms", "短信")),
+    ("orient",     ("orientTraffic", "定向流量")),
+    ("regionData", ("regionTraffic", "省内流量")),
+    ("iptv",       ("iptv", "移动高清", "IPTV")),
+    ("rights",     ("rights", "权益")),
+    ("service",    ("serviceContent", "其他服务内容", "服务内容")),
+    ("extraFees",  ("extraFees", "超出资费说明", "额外费用")),
+    ("otherNotes", ("otherNotes", "其他说明")),
+]
+
+
+def build_details(detail):
+    """把所有公示字段归一成完整字典；不进入 diff 比较，避免抓取抖动造成假变更。"""
     extra = {}
-    for out_key, candidates in keys.items():
+    for out_key, candidates in DETAIL_KEYS:
         for c in candidates:
             val = fmt_value(detail.get(c))
             if val:
-                extra[out_key] = norm(val)[:200]
+                extra[out_key] = val[:1200]   # 长正文(其他服务内容)完整保留
                 break
+    # 兜底：未映射但有中文内容的字段也保留，防止官方新增字段被丢弃
+    covered = {c for _, cs in DETAIL_KEYS for c in cs} | {
+        "name", "title", "fee", "fees", "feesStandard", "feeUnit", "reportNo", "id",
+        "codeType", "firstLevel", "secondLevel", "firstLevelType", "secondLevelType",
+        "minute", "commonData", "dataUnit", "broadBand", "brandwidth", "data", "call",
+    }
+    for key, val in detail.items():
+        if key in covered or val in (None, "", [], {}):
+            continue
+        txt = fmt_value(val)
+        if len(txt) >= 2 and re.search(r"[\u4e00-\u9fa5]", txt):
+            extra[key] = txt[:600]
+    return extra
+
+
+def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code, detail=None):
+    detail = detail or {}
+    full_note = build_note(detail) or norm(note)
+    extra = build_details(detail)
     return {
         "op": op, "name": norm(name), "price": price, "type": typ, "owner": owner,
         "data": norm(data), "voice": norm(voice), "broadband": norm(broadband),
-        "note": norm(note)[:400], "note_full": full_note[:1500],
+        "note": norm(note)[:400], "note_full": full_note[:2000],
         "province": province, "code": norm(code), "details": extra,
         "source": CARRIER_NAMES[op] + "官网",
     }
@@ -174,15 +207,18 @@ def do_mobile(sections):
         pv = prov_from_scope(sec)
         for it in data.get("items") or []:
             f = it.get("fields") or {}
-            # 移动的 fields 是中文键，映射成 detail 结构以复用完整说明/结构化字段逻辑
+            # 移动的 fields 是中文键，全量映射成 detail 以覆盖官方公示详情页全部字段
             detail = {
-                "serviceContent": f.get("其他服务内容") or f.get("权益"),
-                "sms": f.get("短信"), "orientTraffic": f.get("定向流量"),
-                "iptv": f.get("移动高清"), "useScope": f.get("适用范围"),
-                "validPeriod": f.get("有效期限"), "saleChnl": f.get("销售渠道"),
-                "unsubscribe": f.get("退订方式"), "inNetReq": f.get("在网要求"),
-                "responsibility": f.get("违约责任"), "extraFees": f.get("超出资费说明"),
-                "otherNotes": f.get("其他说明"),
+                "useScope": f.get("适用范围"), "applicableArea": f.get("适用地区"),
+                "saleChnl": f.get("销售渠道"), "onDate": f.get("上线日期"),
+                "offDate": f.get("下线日期"), "validPeriod": f.get("有效期限"),
+                "inNetReq": f.get("在网要求"), "unsubscribe": f.get("退订方式"),
+                "responsibility": f.get("违约责任"), "serviceContent": f.get("其他服务内容"),
+                "rights": f.get("权益"), "extraFees": f.get("超出资费说明"),
+                "otherNotes": f.get("其他说明"), "sms": f.get("短信"),
+                "orientTraffic": f.get("定向流量"), "iptv": f.get("移动高清"),
+                "宽带": f.get("宽带"), "国内通话": f.get("国内通话"),
+                "国内通用流量": f.get("国内通用流量"),
             }
             rows.append(mk(
                 "mobile", it.get("name"), money(f.get("资费标准")),
