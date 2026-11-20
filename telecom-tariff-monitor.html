@@ -390,13 +390,15 @@ function currentRows(){
   if(state.owner!=='all') rows=rows.filter(d=>d.owner===state.owner);
   if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
   const q=state.q.trim().toLowerCase();
-  // 覆盖截图上的全部内容：名称/编号/类型/归属/来源/所有资源字段/说明/详情字段值
+  // 覆盖全部字段：adaptRemote 已预计算 _hay；示例数据缺索引时按需补一次
   if(q) rows=rows.filter(d=>{
-    const e=d.extra||{};
-    const hay=[d.name,d.code,d.type,d.owner,d.source,CARRIERS[d.op].name,d.province,
-      d.data,d.voice,d.broadband,d.price,d.note,d.date,
-      ...Object.values(e)].join(' ').toLowerCase();
-    return hay.includes(q);
+    if(!d._hay){
+      const e=d.extra||{};
+      d._hay=[d.name,d.code,d.type,d.owner,d.source,CARRIERS[d.op].name,d.province,
+        d.data,d.voice,d.broadband,d.price,d.note,d.date,
+        ...Object.values(e)].join(' ').toLowerCase();
+    }
+    return d._hay.includes(q);
   });
   rows.sort((a,b)=>{
     let v=0;
@@ -801,17 +803,24 @@ function adaptRemote(raw){
     const owner = d.owner==='政企' ? '政企' : '个人';
     const price = (d.price===null||d.price===undefined||isNaN(Number(d.price))) ? 0 : Number(d.price);
     const date = (d.date||(window.__meta&&window.__meta.date)||'').slice(0,10);
-    out.push({
+    const extra = d.details || {};
+    const note = d.note_full || d.note || '详见运营商官网资费专区。';
+    const item = {
       id: d.id || ('r'+i),
       op, name: d.name || '未命名资费', price,
       type, owner, cat: type+'/'+owner,
       data: d.data || '—', voice: d.voice || '—', broadband: d.broadband || '—',
-      note: d.note_full || d.note || '详见运营商官网资费专区。',
+      note,
       code: d.code || '', source: d.source || (CARRIERS[op].name+'官网'),
-      extra: d.details || {},
+      extra,
       scope, province: prov,
       date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '2026-01-01'
-    });
+    };
+    // 预计算全字段搜索串：一次性拼接，避免每次输入时对上千条逐条 Object.values
+    item._hay=[item.name,item.code,item.type,item.owner,item.source,CARRIERS[op].name,prov,
+      item.data,item.voice,item.broadband,item.price,item.note,item.date,
+      ...Object.values(extra)].join(' ').toLowerCase();
+    out.push(item);
   });
   return out;
 }
@@ -828,31 +837,73 @@ function adaptHistory(raw){
   })).sort((a,b)=>b.date.localeCompare(a.date));
 }
 
-async function loadData(){
-  const tag=$('dataTag'), notice=$('notice'), sync=$('sync');
+/* ---------- 数据加载：本地缓存 + 增量校验 + 超时保护 ---------- */
+const CACHE_KEY='tariff_cache_v2';
+// 带超时的 fetch，避免网络异常时无限卡在"正在加载"
+function fetchJSON(url,ms){
+  return new Promise((resolve,reject)=>{
+    const ctl=new AbortController();
+    const timer=setTimeout(()=>ctl.abort(),ms);
+    fetch(url,{cache:'no-store',signal:ctl.signal})
+      .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(resolve).catch(reject).finally(()=>clearTimeout(timer));
+  });
+}
+function readCache(){
   try{
-    const [metaRes,itemsRes,histRes]=await Promise.all([
-      fetch(DATA_BASE+'latest.json',{cache:'no-store'}),
-      fetch(DATA_BASE+'items.json',{cache:'no-store'}),
-      fetch(DATA_BASE+'history.json',{cache:'no-store'})
+    const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
+    if(c&&Array.isArray(c.items)&&c.items.length>=10&&c.meta) return c;
+  }catch(e){}
+  return null;
+}
+function writeCache(meta,items,hist){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({sig:dataSig(meta),meta,items,hist}));}
+  catch(e){} // 超出配额时跳过缓存，不影响功能
+}
+function dataSig(meta){return String(meta&&meta.timestamp||'')+'|'+(meta&&meta.count||0);}
+function applyData(meta,items,hist,label){
+  window.__meta=meta;
+  DATA=adaptRemote(items);
+  HISTORY=adaptHistory(hist);
+  const tag=$('dataTag');
+  tag.textContent=label||'真实数据';
+  if(label==='真实数据'||!label){tag.style.background='#dcfce7';tag.style.color='#166534';}
+  else{tag.style.background='';tag.style.color='';}
+  $('notice').textContent='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
+  $('sync').textContent='更新于 '+(meta.date||'--');
+  render();
+}
+async function loadData(){
+  const cached=readCache();
+  // 1) 命中本地缓存：先用缓存即时渲染，页面秒开
+  if(cached) applyData(cached.meta,cached.items,cached.hist,'本地缓存');
+  // 2) 后台增量校验：只拉极小的 latest.json（约 200B），无变化就结束，不再下载 3.4MB
+  try{
+    const meta=await fetchJSON(DATA_BASE+'latest.json',8000);
+    if(cached&&cached.sig===dataSig(meta)){
+      // 数据未变化，把标签改回"真实数据"（缓存内容与线上一致）
+      const tag=$('dataTag');tag.textContent='真实数据';tag.style.background='#dcfce7';tag.style.color='#166534';
+      return;
+    }
+    // 3) 有变化或无缓存：才拉取完整的 items/history
+    const [items,hist]=await Promise.all([
+      fetchJSON(DATA_BASE+'items.json',20000),
+      fetchJSON(DATA_BASE+'history.json',10000).catch(()=>[])
     ]);
-    if(!metaRes.ok||!itemsRes.ok||!histRes.ok) throw new Error('HTTP '+[metaRes.status,itemsRes.status,histRes.status].join('/'));
-    const [meta,items,hist]=await Promise.all([metaRes.json(),itemsRes.json(),histRes.json()]);
     if(!Array.isArray(items)||items.length<10) throw new Error('数据量异常');
-    window.__meta=meta;
-    DATA=adaptRemote(items);
-    HISTORY=adaptHistory(hist);
-    tag.textContent='真实数据';
-    tag.style.background='#dcfce7';tag.style.color='#166534';
-    notice.textContent='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
-    sync.textContent='更新于 '+(meta.date||'--');
-    render();
+    writeCache(meta,items,hist);
+    applyData(meta,items,hist,'真实数据');
   }catch(e){
-    tag.textContent='示例数据';
-    tag.style.background='';tag.style.color='';
-    notice.textContent='当前展示内置示例数据（未能加载线上数据：'+e.message+'）。实际资费以运营商官网与营业厅公示为准。';
-    const d=new Date(),p=n=>String(n).padStart(2,'0');
-    sync.textContent='示例 · '+p(d.getMonth()+1)+'-'+p(d.getDate());
+    if(cached){
+      // 有缓存：继续用缓存，仅提示校验失败，不退回示例数据
+      $('notice').textContent='当前显示本地缓存数据（线上校验失败：'+e.message+'）· 实际资费以运营商官网与营业厅公示为准。';
+    }else{
+      // 无缓存：降级示例数据
+      const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
+      $('notice').textContent='当前展示内置示例数据（未能加载线上数据：'+e.message+'）。实际资费以运营商官网与营业厅公示为准。';
+      const d=new Date(),p=n=>String(n).padStart(2,'0');
+      $('sync').textContent='示例 · '+p(d.getMonth()+1)+'-'+p(d.getDate());
+    }
   }
 }
 
