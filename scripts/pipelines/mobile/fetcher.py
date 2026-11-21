@@ -223,35 +223,61 @@ def _build_opener():
 
 def _is_conn_error(e) -> bool:
     """链接/握手类瞬时错误（GitHub Actions 出口到移动网关偶发 Errno 101
-    Network is unreachable、SSL 握手失败、超时等）：源站并未降级，只是
-    runner 侧网络抖动，重试后大概率恢复，应加大重试窗口而非归因降级。"""
+    Network is unreachable、Errno 104 Connection reset by peer、SSL 握手失败、
+    超时等）：源站并未降级，只是 runner 侧网络抖动或网关主动断开，重试后
+    大概率恢复，应加大重试窗口而非归因降级。"""
     if isinstance(e, (urllib.error.URLError, ssl.SSLError, TimeoutError, OSError)):
         return True
     s = str(e)
-    return "Network is unreachable" in s or "Errno 101" in s or "timed out" in s.lower()
+    return ("Network is unreachable" in s or "Errno 101" in s
+            or "Errno 104" in s or "Connection reset by peer" in s
+            or "timed out" in s.lower())
 
 
-def _post(opener, body_hex: str, ua: str = None) -> str:
+def _rotate_ua(current: str) -> str:
+    """连接被重置后换一个 UA 指纹，避免同一 IP+UA 配额持续被拒。"""
+    try:
+        idx = UA_POOL.index(current)
+    except ValueError:
+        idx = random.randrange(len(UA_POOL))
+    step = 1 + random.randrange(len(UA_POOL) - 1)
+    return UA_POOL[(idx + step) % len(UA_POOL)]
+
+
+def _encrypt_with_nonce(params: dict) -> str:
+    """每次请求生成新 xk。重连时必须换 nonce：首包可能已到源站但响应被 RST，
+    复用同一 xk 会被幂等键判定为重复请求而再次被拒。"""
+    p = dict(params)
+    p["xk"] = str(uuid.uuid4())
+    return _encrypt(p)
+
+
+def _post(opener, params: dict, ua: str = None) -> str:
     """POST 加密请求。单请求 60s 超时。
 
     ua: 本次请求使用的 UA 指纹（由 _pick_ua() 轮换得到）。
         必须显式传入——此前本函数体内引用了未定义的局部名 ua，
         导致每次请求都抛 NameError，全部分类抓取失败、整轮 0 条。
 
-    链接/握手类瞬时错误（Errno 101 Network is unreachable 等）：指数退避
-    2/4/8/16/30s、最多 6 次重试——此类错误代表 runner 侧网络抖动而非源站
-    降级，拉长重试防误判，重试后多数当轮即可恢复；
+    链接/握手类瞬时错误（Errno 101 Network is unreachable、Errno 104
+    Connection reset by peer 等）：指数退避 2/4/8/16/30s、最多 6 次重试，
+    并在每次重试前刷新 xk、轮换 UA、加 ±20% 抖动——此类错误代表 runner
+    侧网络抖动或网关主动断连而非源站降级，重试后多数当轮即可恢复；
     其他（业务/解密）错误维持 3/6/12s 共 4 次，避免个别分类连续退避拖垮整轮。"""
     last = None
+    cur_ua = ua or UA
+    body_hex = _encrypt_with_nonce(params)
     for i in range(6):
         try:
             req = urllib.request.Request(
                 API_URL, data=body_hex.encode(), method="POST", headers={
-                    "User-Agent": ua or UA,
+                    "User-Agent": cur_ua,
                     "Referer": PAGE_URL,
                     "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
                     "Content-Type": "application/json; charset=UTF-8",
                     "X-Requested-With": "XMLHttpRequest",
+                    "Connection": "close",
                 })
             with opener.open(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
@@ -262,8 +288,12 @@ def _post(opener, body_hex: str, ua: str = None) -> str:
             max_retry = 6 if conn else 4
             wait_seq = (2, 4, 8, 16, 30) if conn else (3, 6, 12)
             if i < max_retry - 1:
-                wait = wait_seq[i] if i < len(wait_seq) else wait_seq[-1]
-                print(f"[fetch] 请求失败，{wait}s 后重试({i + 2}/{max_retry}): {e}")
+                base = wait_seq[i] if i < len(wait_seq) else wait_seq[-1]
+                wait = base * (0.8 + random.random() * 0.4)  # ±20% 抖动
+                if conn:
+                    body_hex = _encrypt_with_nonce(params)  # 换 xk，避免幂等拒绝
+                    cur_ua = _rotate_ua(cur_ua)             # 换 UA 指纹池
+                print(f"[fetch] 请求失败，{wait:.1f}s 后重试({i + 2}/{max_retry}): {e}")
                 time.sleep(wait)
             else:
                 break
@@ -276,9 +306,9 @@ def _fetch_cell(opener, tariff_attr: str, type1: str, type2: str,
     params = {
         "cellNum": "99999999999", "province": prov_code, "isPublic": "1",
         "linkScn": "1", "tariffAttr": tariff_attr, "type1": type1, "type2": type2,
-        "page": 1, "limit": 10000, "xk": str(uuid.uuid4()),
+        "page": 1, "limit": 10000,
     }
-    plain = _post(opener, _encrypt(params), ua)
+    plain = _post(opener, params, ua)
     data = json.loads(plain)
     beans = ((data or {}).get("data") or {}).get("beans") or []
     items_by_name = {}
