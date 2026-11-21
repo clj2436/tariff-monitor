@@ -438,4 +438,23 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    import io
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        # 任何未捕获异常都打印完整堆栈。GitHub Actions 的作业失败默认只显示
+        # "exit code 1"，这里额外用 ::error:: workflow command 把堆栈逐行输出，
+        # 使其成为 check-run annotation —— 匿名即可通过 API 读取，便于定位。
+        buf = io.StringIO()
+        traceback.print_exc(file=buf)
+        tb = buf.getvalue()
+        print("\n========== 抓取脚本异常堆栈 ==========", file=sys.stderr)
+        print(tb, file=sys.stderr)
+        print("=====================================\n", file=sys.stderr)
+        for line in tb.strip().splitlines():
+            safe = (line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+            print("::error::" + safe)
+        raise

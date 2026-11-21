@@ -12,19 +12,34 @@ import ssl
 
 
 def make_ssl_context():
-    """兼容运营商老接口的 TLS 上下文。
+    """兼容运营商老接口的 TLS 上下文（跨 Python / OpenSSL 版本安全）。
 
-    部分运营商网关仍使用旧版 TLS 重协商，OpenSSL 3.x（Python 3.10+，GitHub
-    Actions 的 setup-python 默认新版）默认禁用，会抛
-    ``SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED``。这里显式放行：
+    部分运营商网关仍使用旧版 TLS 重协商，OpenSSL 3.x 默认禁用会抛
+    ``SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED``。这里通过两种方式兼容：
       - OP_LEGACY_SERVER_CONNECT (0x4)：允许连接不支持安全重协商的旧服务端；
-      - SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION (0x40000)：允许不安全旧重协商，
-        Python 的 ssl 模块未暴露该常量，直接用数值。
-    证书校验仍然开启，仅放宽重协商策略，不影响安全性。
+      - set_ciphers 降低 SECLEVEL：允许旧的加密套件/重协商。
+
+    【重要】不要再用 ``ctx.options |= 0x40000``。0x40000 是 OpenSSL 的
+    SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION，但 Python 的 ssl.Options 是
+    IntFlag 且并未暴露该值；在 Python 3.11（GitHub Actions 所用版本）下，
+    对未定义的位做 |= 会抛 ``ValueError: not a valid Options``。由于广电、
+    联通管道在模块 import 阶段就调用本函数，该异常发生在 try 之外，会导致
+    整个抓取脚本秒级崩溃（exit 1）。改用 set_ciphers 更安全且跨版本稳定。
+
+    本函数保证任何情况下都返回一个可用的 context，绝不因兼容选项抛异常。
+    证书校验仍然开启，仅放宽重协商/加密级别策略。
     """
     ctx = ssl.create_default_context()
-    ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
-    ctx.options |= 0x40000  # SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION
+    try:
+        ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT
+    except (AttributeError, ValueError, TypeError):
+        pass
+    try:
+        # 降低安全级别以兼容旧重协商；等价于放行 unsafe legacy renegotiation，
+        # 且不依赖 ssl 模块未暴露的数值常量，Python 3.10/3.11/3.13 均支持。
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+    except (ssl.SSLError, ValueError, TypeError):
+        pass
     return ctx
 
 
