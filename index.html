@@ -93,9 +93,6 @@ select:focus,input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,9
 .price-range input{width:86px;padding:7px 8px}
 .price-range span{color:var(--muted);font-size:12px}
 .price-range .price-unit{margin-left:1px}
-.date-range{display:flex;align-items:center;gap:4px;white-space:nowrap}
-.date-range input{width:118px;padding:7px 6px;font-size:12px}
-.date-range span{color:var(--muted);font-size:12px}
 .search{position:relative;display:flex;align-items:center}
 .search input{padding-left:29px;width:200px}
 .search::before{content:"⌕";position:absolute;left:10px;color:var(--muted);font-size:16px;pointer-events:none}
@@ -468,7 +465,7 @@ function saveSel(){
   try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
 const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',priceMin:'',priceMax:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,
-  histQ:'',histKind:'all',histPmin:'',histPmax:'',histFrom:'',histTo:'',page:1,size:12,
+  histQ:'',histKind:'all',histPmin:'',histPmax:'',page:1,size:12,
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),maxItems:Number(localStorage.getItem('tariff_max_items')||30),
@@ -847,7 +844,6 @@ function renderHistory(){
     '<div class="search"><input type="text" id="hQ" value="'+state.histQ.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/变更说明" style="width:230px"></div>'+
     '<select id="hKind"><option value="all">全部变更类型</option>'+['新增','修改','下架'].map(k=>'<option'+(state.histKind===k?' selected':'')+'>'+k+'</option>').join('')+'</select>'+
     '<div class="price-range" title="按月费区间筛选（元/月，可只填一端）"><input type="number" id="hPmin" min="0" step="any" placeholder="最低月费" value="'+escHtml(state.histPmin)+'"><span>—</span><input type="number" id="hPmax" min="0" step="any" placeholder="最高月费" value="'+escHtml(state.histPmax)+'"><span class="price-unit">元</span></div>'+
-    '<span class="date-range" title="按变更日期区间筛选"><input type="date" id="hFrom" value="'+escHtml(state.histFrom)+'"><span>~</span><input type="date" id="hTo" value="'+escHtml(state.histTo)+'"></span>'+
     '<button class="btn'+(state.histMode==='item'?' on':'')+'" id="hModeItem">按资费</button>'+
     '<button class="btn'+(state.histMode==='batch'?' on':'')+'" id="hModeBatch">按批次</button>'+
     '<button class="btn" id="hExpand">全部展开</button>'+
@@ -890,6 +886,7 @@ function renderHistory(){
         '<div class="hist-main"><div class="hist-name">'+latest.name+' <span class="chg '+cls+'">'+latest.kind+'</span>'+
         (latest.code?'<span class="hist-code">'+latest.code+'</span>':'')+'</div>'+
         '<div class="hist-summary">'+latest.province+' · '+span+' · 最近：'+changeText(latest)+'</div></div>'+
+        '<button class="detail hdetail" data-hdetail="'+(latest._hi||0)+'" style="flex:none">查看</button>'+
         '<span class="hist-count">'+arr.length+' 次改动</span></div>'+
         '<div class="hist-body">'+arr.map(h=>tlItem(h,color,false)).join('')+'</div></div>';
     }).join('');
@@ -918,6 +915,7 @@ function renderHistory(){
         '<div class="hist-main"><div class="hist-name">'+date+' 抓取批次</div>'+
         '<div class="hist-summary">新增 '+cnt.新增+' · 修改 '+cnt.修改+' · 下架 '+cnt.下架+'</div>'+
         '<div class="batch-sum">'+pvChips+'</div></div>'+
+        '<button class="detail hdetail" data-hdetail="'+(arr[0]._hi||0)+'" style="flex:none">查看</button>'+
         '<span class="hist-count">'+arr.length+' 条</span></div>'+
         '<div class="hist-body">'+body+'</div></div>';
     }).join('');
@@ -936,8 +934,6 @@ function renderHistory(){
     const pmin=Number(state.histPmin), pmax=Number(state.histPmax);
     if(state.histPmin!==''&&Number.isFinite(pmin)) list=list.filter(h=>Number(h.price)>=pmin);
     if(state.histPmax!==''&&Number.isFinite(pmax)) list=list.filter(h=>Number(h.price)<=pmax);
-    if(state.histFrom) list=list.filter(h=>h.date>=state.histFrom);
-    if(state.histTo) list=list.filter(h=>h.date<=state.histTo);
     histRows=list;                              // 详情窗口按索引取记录
     list.forEach((h,i)=>{h._hi=i;});            // 列表重建后索引始终对应当前筛选结果
     if(state.histMode==='batch') drawBatch(list); else drawItem(list);
@@ -947,10 +943,8 @@ function renderHistory(){
   $('hKind').addEventListener('change',e=>{state.histKind=e.target.value;state.histPage=1;draw();});
   $('hPmin').addEventListener('input',e=>{state.histPmin=e.target.value;state.histPage=1;draw();});
   $('hPmax').addEventListener('input',e=>{state.histPmax=e.target.value;state.histPage=1;draw();});
-  $('hFrom').addEventListener('change',e=>{state.histFrom=e.target.value;state.histPage=1;draw();});
-  $('hTo').addEventListener('change',e=>{state.histTo=e.target.value;state.histPage=1;draw();});
   $('hReset').addEventListener('click',()=>{
-    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histFrom='';state.histTo='';state.histPage=1;
+    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histPage=1;
     render();
   });
   $('hModeItem').addEventListener('click',()=>{state.histMode='item';state.histPage=1;render();});
