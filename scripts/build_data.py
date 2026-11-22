@@ -452,6 +452,8 @@ def main():
     # 专项分片首次运行时上一轮数据为空：只建基线，不把整批旧资费误报成「新上架」。
     ap.add_argument("--baseline-if-empty", action="store_true",
                     help="上轮无数据时只建基线，不记本轮变化（新增专项抓取源使用）")
+    ap.add_argument("--baseline-provinces", default=os.environ.get("BASELINE_PROVINCES", ""),
+                    help="逗号分隔省份；这些省份本轮数据只建基线不记变化（新增省份首次纳入时用，避免整批误报为新上架刷屏）")
     # 并行分片模式：--raw-out 只抓指定运营商、写出原始 rows 后即返回（不 diff）；
     # --merge-from 读取各分片 raw json，统一生成 id、合并、diff、输出 data/。
     ap.add_argument("--raw-out", default="")
@@ -528,6 +530,14 @@ def main():
             print("[基线] 本源首次运行，只建基线不记变化，避免整批误报为新上架")
     else:
         changes = diff_rows(prev_rows, rows)
+        # 新增省份首次纳入：数据照常落盘，但这些省份本轮的变化不计入 diff，
+        # 避免 6000+ 条一次性判为「新上架」推送刷屏；下一轮起正常检测。
+        baseline_set = {s.strip() for s in args.baseline_provinces.split(",") if s.strip()}
+        if baseline_set:
+            before = len(changes)
+            changes = [c for c in changes if not (c.get("kind") == "新增" and c.get("province") in baseline_set)]
+            print("[基线省份] %s：剔除 %d 条首轮新增（数据已落盘，不计变化）"
+                  % ("、".join(sorted(baseline_set)), before - len(changes)))
     hist = (prev_hist + changes)[-150:]
 
     ops_present = sorted({d.get("op") for d in rows if d.get("op")})
