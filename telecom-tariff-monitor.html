@@ -1027,6 +1027,10 @@ async function workerCall(payload){
   if(!res.ok) throw new Error((j&&j.error)||('Worker 返回 HTTP '+res.status));
   return j;
 }
+function subStatus(msg,type){
+  const el=$('subStatus');if(!el)return;
+  el.className='sub-status show '+(type||'info');el.textContent=msg;
+}
 /* 读取当前配置：密码正确后 Worker 回显，密钥只显示「已配置+尾号」，真值不可回读 */
 async function readBotConfig(){
   const s=state.sub;
