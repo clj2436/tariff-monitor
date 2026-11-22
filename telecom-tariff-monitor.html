@@ -413,6 +413,9 @@ const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect
   sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
 const $=id=>document.getElementById(id);
+// 电信/移动：不展示"已下线"开关，且已下线条目一律不显示、不统计；联通/广电保留原开关行为。
+function offlineSuppressed(){return state.op==='telecom'||state.op==='mobile';}
+function showOfflineEnabled(){return state.showOffline&&!offlineSuppressed();}
 const money=n=>n===0?'0元':'¥'+n;
 // 北京时间(UTC+8)当天日期 YYYY-MM-DD。已下线判定必须按北京时间，与国内"今天"一致，
 // 不受访问者浏览器时区影响（海外/跨时区访问也不会误判）。
@@ -459,7 +462,7 @@ function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-bt
 /* ---------- 数据查询 ---------- */
 function currentRows(){
   let rows=DATA.filter(d=>d.op===state.op);
-  if(!state.showOffline) rows=rows.filter(d=>!d.offline);
+  if(!showOfflineEnabled()) rows=rows.filter(d=>!d.offline);
   if(state.tab==='national') rows=rows.filter(d=>d.scope==='全国');
   if(state.tab==='province') rows=rows.filter(d=>d.scope==='省份'&&d.province===state.prov);
   if(state.type!=='all') rows=rows.filter(d=>d.type===state.type);
@@ -590,7 +593,7 @@ function exportCSV(){
 function renderOverview(){
   const allOpData=DATA.filter(d=>d.op===state.op);
   const offlineCount=allOpData.filter(d=>d.offline).length;
-  const opData=state.showOffline?allOpData:allOpData.filter(d=>!d.offline);
+  const opData=showOfflineEnabled()?allOpData:allOpData.filter(d=>!d.offline);
   const nat=opData.filter(d=>d.scope==='全国');
   const pv=opData.filter(d=>d.scope==='省份');
   const prov=opData.filter(d=>d.scope==='省份'&&d.province===state.prov);
@@ -600,7 +603,7 @@ function renderOverview(){
   const provChanges=HISTORY.filter(h=>h.op===state.op&&h.province===state.prov&&h.date>=since).length;
   const max=Math.max(1,...cats.map(c=>c[1]));
   $('view').innerHTML=
-    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(!state.showOffline&&offlineCount?' · <span style="color:var(--warn)">已隐藏 '+offlineCount+' 条已下线资费（点顶部「已下线」开关可查看）</span>':'')+'</p>'+
+    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(!offlineSuppressed()&&!state.showOffline&&offlineCount?' · <span style="color:var(--warn)">已隐藏 '+offlineCount+' 条已下线资费（点顶部「已下线」开关可查看）</span>':'')+'</p>'+
     '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
     '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
     '<div class="kpi-grid">'+
@@ -692,7 +695,7 @@ function renderFieldSearch(){
   if(!sf.scopes||!sf.scopes.length) sf.scopes=[{op:'all',prov:'all'}];
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">字段检索 <span class="pill">按公示字段精确查找</span></h3>'+
     '<span class="card-desc">自定义检索范围（运营商 × 省份，可加多行）+ 字段 + 关键词，检索公示专区里的任意字段</span></div>'+
-    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。完全相同的范围会自动去重（新增时自动避开已存在的范围）；仅互相包含的范围（如「全部运营商 × 四川」与「中国移动 × 四川」）允许重复添加。<br>当前已下线资费：<b>'+(state.showOffline?'显示':'隐藏（默认，按官网下架日期 < 今天判定）')+'</b>，可用顶部「已下线」开关切换。</div>'+
+    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。完全相同的范围会自动去重（新增时自动避开已存在的范围）；仅互相包含的范围（如「全部运营商 × 四川」与「中国移动 × 四川」）允许重复添加。<br>'+(offlineSuppressed()?'电信/移动接口无已下线资费，无需该开关。':'当前已下线资费：<b>'+(state.showOffline?'显示':'隐藏（默认，按官网下架日期 < 今天判定）')+'</b>，可用顶部「已下线」开关切换。')+'</div>'+
     '<div class="scope-list" id="scopeList"></div>'+
     '<div style="padding:10px 18px 0"><button class="btn" id="scopeAdd">＋ 添加范围条件</button></div>'+
     '<div class="adv-grid">'+
@@ -700,7 +703,7 @@ function renderFieldSearch(){
       '<div class="adv-field"><label>匹配方式</label><select id="sMode"><option value="contains"'+(sf.mode==='contains'?' selected':'')+'>包含关键词</option><option value="exact"'+(sf.mode==='exact'?' selected':'')+'>完全等于</option><option value="empty"'+(sf.mode==='empty'?' selected':'')+'>该字段为空</option></select></div>'+
       '<div class="adv-field" style="grid-column:1/-1"><label>关键词</label><input type="text" id="sKw" value="'+escHtml(sf.kw)+'" placeholder="输入关键词，如：江西 / 10086热线 / 不可重复办理"></div>'+
     '</div>'+
-    '<div class="adv-actions"><button class="btn btn-primary" id="sRun">检索</button><button class="btn" id="sReset">重置</button><span class="filter-info" id="sCount"></span></div>'+
+      '<div class="adv-actions"><button class="btn btn-primary" id="sRun">检索</button><button class="btn" id="sReset">重置</button><span class="filter-info" id="sCount"></span></div>'+
     '<div id="sResult"></div></div>';
   const drawScopes=()=>{
     $('scopeList').innerHTML=sf.scopes.map((s,i)=>
@@ -728,7 +731,7 @@ function renderFieldSearch(){
   };
   const draw=()=>{
     let rows=DATA.filter(d=>inScopes(d,sf.scopes));
-    if(!state.showOffline) rows=rows.filter(d=>!d.offline); // 字段检索同样默认隐藏已下线资费
+    if(!showOfflineEnabled()) rows=rows.filter(d=>!d.offline); // 默认隐藏已下线资费（电信/移动无此类数据）
     const kw=sf.kw.trim().toLowerCase();
     if(sf.mode==='empty') rows=rows.filter(d=>!String(searchFieldText(d,sf.field)||'').trim());
     else if(kw){
@@ -742,7 +745,7 @@ function renderFieldSearch(){
       rows.slice(0,200).map(d=>{
         const v=String(searchFieldText(d,sf.field)||'—');
         const html=kw&&sf.mode!=='exact'?escHtml(v).replace(new RegExp('('+kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<span class="adv-hit">$1</span>'):escHtml(v.length>90?v.slice(0,90)+'…':v);
-        return '<tr><td>'+opBadge(d.op)+'</td><td class="name">'+escHtml(d.name)+'</td><td><span class="type-tag">'+d.type+'</span></td>'+
+        return '<tr><td>'+opBadge(d.op)+'</td><td class="name">'+escHtml(d.name)+(d.offline?' <span class="pill" style="background:#fee2e2;color:#991b1b">已下线</span>':'')+'</td><td><span class="type-tag">'+d.type+'</span></td>'+
           '<td class="price">'+money(d.price)+'</td><td class="muted" style="max-width:340px">'+html+'</td>'+
           '<td class="muted">'+(d.scope==='全国'?'全网':d.province)+'</td>'+
           '<td><button class="detail" data-detail="'+d.id+'">查看</button></td></tr>';
@@ -1041,6 +1044,7 @@ function renderLoadState(){
   const r=$('loadRetry');if(r)r.addEventListener('click',()=>$('reloadBtn').click());
 }
 function render(){
+  updateOfflineBtn(); // 切换运营商时同步"已下线"开关显隐
   const dataTab=['overview','national','province','search','history'].indexOf(state.tab)>=0;
   if(dataTab&&loadState!=='ready'){renderLoadState();return;}
   if(state.tab==='overview') renderOverview();
@@ -1195,6 +1199,9 @@ $('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.
 // 全局"显示已下线"开关：一处控制列表/总览统计/字段检索；默认隐藏已过下架日期的资费。
 function updateOfflineBtn(){
   const b=$('offlineBtn');if(!b)return;
+  // 电信/移动页面不展示"已下线"开关（数据一律隐藏已下线条目）
+  if(offlineSuppressed()){b.style.display='none';return;}
+  b.style.display='';
   b.textContent='已下线：'+(state.showOffline?'显示':'隐藏');
   b.classList.toggle('on',state.showOffline);
   b.title=state.showOffline?'当前显示已下线资费，点击隐藏':'当前隐藏已下线资费，点击显示（按官网下架日期 < 今天判定）';
