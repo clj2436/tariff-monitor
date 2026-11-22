@@ -1,0 +1,93 @@
+name: 抓取广电资费
+
+# 独立 workflow：只抓 广电 一家，与其他运营商完全隔离。
+# 抓取慢（如联通）只影响自己，不再拖慢其他家；无需全局 merge 等待。
+on:
+  schedule:
+    - cron: '5 0,8,16 * * *'   # 北京时间 00:05 / 08:05 / 16:05
+  workflow_dispatch:          # 手动触发
+
+permissions:
+  contents: write
+
+# 每家独立并发组：同一家多次运行排队，不同家并行互不阻塞
+concurrency:
+  group: tariff-gb
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - name: 检出仓库（最新 main）
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 抓取 广电 并构建本家数据
+        env:
+          TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
+          FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '90' }}
+        run: |
+          python3 scripts/build_data.py --carriers gb --out data/ops/gb
+
+      - name: 校验本家数据
+        run: |
+          python3 - <<'PYCHECK'
+          import json, sys
+          op = 'gb'
+          try:
+            meta = json.load(open('data/ops/%s/latest.json' % op, encoding='utf-8'))
+            items = json.load(open('data/ops/%s/items.json' % op, encoding='utf-8'))
+          except Exception as e:
+            print('数据文件读取失败:', e); sys.exit(1)
+          if not isinstance(items, list) or meta.get('count', -1) != len(items):
+            print('数据不一致: meta.count=%s items=%s' % (meta.get('count'), len(items) if isinstance(items, list) else '?'))
+            sys.exit(1)
+          print('广电 校验通过：%d 条，本轮 %d 条变更，板块 %s' % (
+            len(items), meta.get('changes', 0), ','.join(sorted((meta.get('by_province') or {}).keys()))))
+          PYCHECK
+
+      - name: 推送本家变化到钉钉
+        continue-on-error: true     # 推送失败不阻断数据提交
+        env:
+          WATCH_RULES: ${{ vars.WATCH_RULES || 'gb:*' }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          python3 scripts/notify_dingtalk.py \
+            --input data/ops/gb/current_changes.json \
+            --state data/ops/gb/.notify_state.json \
+            --tag '广电'
+
+      - name: 提交本家数据
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ops/gb/
+          if git diff --cached --quiet; then
+            echo "本家数据无变化，跳过提交"
+          else
+            git commit -m "chore: 更新广电资费数据 $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            # 4 家 workflow 同时 push 会撞车，rebase 重试（各家改不同目录，不会冲突）
+            for i in 1 2 3 4 5 6; do
+              if git push; then echo "数据已提交"; break; fi
+              echo "push 冲突，rebase 后重试($i/6)"
+              git pull --rebase origin main || git rebase --abort || true
+              sleep 3
+            done
+          fi

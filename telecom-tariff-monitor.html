@@ -694,11 +694,12 @@ function renderHistory(){
   $('hProv').addEventListener('change',draw);
   $('hReload').addEventListener('click',async()=>{
     try{
-      const r=await fetch(DATA_BASE+'history.json',{cache:'no-store'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      HISTORY=adaptHistory(await r.json());
+      // 4 家独立分片：只重新探测变化家的历史，重新合并
+      const changed=await probeOps(false);
+      if(changed.length) await refreshOps(changed);
+      HISTORY=adaptHistory(combineOps().hist);
       rows=HISTORY.filter(h=>h.op===state.op);
-      draw();toast('已重新加载 '+rows.length+' 条变更记录');
+      writeCache();draw();toast('已重新加载 '+rows.length+' 条变更记录');
     }catch(e){toast('加载失败：'+e.message);}
   });
   draw();
@@ -1079,16 +1080,16 @@ function histKey(h){
   return 'n:'+h.op+'|'+(h.province||'')+'|'+(h.name||''); // 无编号：退回 运营商+省份+名称
 }
 
-/* ---------- 数据加载：本地缓存 + 增量校验 + 超时保护 ---------- */
-const CACHE_KEY='tariff_cache_v2';
-// 边跑边同步：抓取中的运营商会发布 data/live/{carrier}-{idx}.json，
-// 网页加载/定时探测这些分片，按(运营商,省份)板块覆盖基底数据，实时可见。
-const LIVE_SHARDS=['mobile-0','telecom-0','gb-0','unicom-0','unicom-1'];
-let liveData={};          // name -> {ts,op,rows}
-let liveTimer=null;
-let baseItemsRaw=[];      // items.json 原始 rows（未 adapt）
-let baseHistRaw=[];       // history.json 原始 rows
-let baseMetaRaw=null;
+/* ---------- 数据加载：4 家独立分片 + 本地缓存 + 增量校验 ----------
+ * 每家运营商由独立 workflow 抓取，产物在 data/ops/<op>/{latest,items,history}.json。
+ * 网页并行读 4 个 latest.json（每个约 200B）：哪家签名变了才拉那家的 items/history，
+ * 合并后渲染。任一家抓取慢/失败都不影响其他家已更新的数据。定时轮询实现渐进可见。
+ */
+const CACHE_KEY='tariff_cache_v3';
+const OPS=['mobile','telecom','unicom','gb'];
+let opState={};          // op -> {sig,meta,items,hist}  各家原始数据
+let opTimer=null;
+let combinedMeta=null;
 // 带超时的 fetch，避免网络异常时无限卡在"正在加载"
 function fetchJSON(url,ms){
   return new Promise((resolve,reject)=>{
@@ -1099,122 +1100,125 @@ function fetchJSON(url,ms){
       .then(resolve).catch(reject).finally(()=>clearTimeout(timer));
   });
 }
+function opSig(meta){return String(meta&&meta.timestamp||'')+'|'+(meta&&meta.count||0);}
 function readCache(){
   try{
     const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
-    if(c&&Array.isArray(c.items)&&c.items.length>=10&&c.meta) return c;
+    if(c&&c.ops&&typeof c.ops==='object') return c.ops;
   }catch(e){}
   return null;
 }
-function writeCache(meta,items,hist){
-  try{localStorage.setItem(CACHE_KEY,JSON.stringify({sig:dataSig(meta),meta,items,hist}));}
+function writeCache(){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({ops:opState}));}
   catch(e){} // 超出配额时跳过缓存，不影响功能
 }
-function dataSig(meta){return String(meta&&meta.timestamp||'')+'|'+(meta&&meta.count||0);}
-function applyData(meta,items,hist,label){
-  window.__meta=meta;
-  baseItemsRaw=items||[];
-  baseHistRaw=hist||[];
-  baseMetaRaw=meta||{};
-  const merged=mergeLive(baseItemsRaw);
-  DATA=adaptRemote(merged.items);
+// 把 4 家原始数据合并成页面渲染所需的 meta/items/hist
+function combineOps(){
+  const items=[],hist=[];
+  const byOp={},byProv={};
+  let count=0,changes=0,latestTs='',latestDate='';
+  OPS.forEach(op=>{
+    const s=opState[op];
+    if(!s) return;
+    (s.items||[]).forEach(d=>items.push(d));
+    (s.hist||[]).forEach(h=>hist.push(h));
+    const m=s.meta||{};
+    count+=Number(m.count)||0; changes+=Number(m.changes)||0;
+    if((m.timestamp||'')>latestTs) latestTs=m.timestamp||'';
+    if((m.date||'')>latestDate) latestDate=m.date||'';
+    Object.entries(m.by_op||{}).forEach(([k,v])=>{byOp[k]=(byOp[k]||0)+v;});
+    Object.entries(m.by_province||{}).forEach(([k,v])=>{byProv[k]=(byProv[k]||0)+v;});
+  });
+  const meta={timestamp:latestTs,date:latestDate,count,by_op:byOp,by_province:byProv,changes};
+  return {meta,items,hist};
+}
+function applyData(label){
+  const {meta,items,hist}=combineOps();
+  window.__meta=meta; combinedMeta=meta;
+  DATA=adaptRemote(items);
   HISTORY=adaptHistory(hist);
   const tag=$('dataTag');
   tag.textContent=label||'真实数据';
   if(label==='真实数据'||!label){tag.style.background='#dcfce7';tag.style.color='#166534';}
-  else{tag.style.background='';tag.style.color='';}
-  let notice='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
-  if(merged.active.length){
-    $('dataTag').textContent='实时抓取中';
-    tag.style.background='#fef3c7';tag.style.color='#92400e';
-    notice='抓取进行中：'+merged.active.join('、')+' '+merged.blocks+' 个板块已是实时数据，其余为上一轮数据；全部完成后自动汇总。'+'实际资费以运营商官网与营业厅公示为准。';
-  }
-  $('notice').textContent=notice;
-  $('sync').textContent=merged.active.length?('实时 · '+merged.active.join('/')):('更新于 '+(meta.date||'--'));
+  else{tag.style.background='#fef3c7';tag.style.color='#92400e';}
+  const updOps=OPS.filter(op=>opState[op]&&opState[op].meta&&opState[op].meta.timestamp)
+    .map(op=>CARRIERS[op].name+' '+(opState[op].meta.date||'')).join(' · ');
+  $('notice').textContent='数据由 GitHub Actions 分运营商独立抓取生成 · '+updOps+' · 实际资费以运营商官网与营业厅公示为准。';
+  $('sync').textContent=(label&&label!=='真实数据'?'实时 · ':'更新于 ')+(meta.date||'--');
   render();
 }
-// live 分片按板块覆盖基底：已发布分片的(运营商,省份)用新数据，其余保留基底；
-// 每个分片可能只含部分省份，故以板块为单位而非整运营商替换。
-function mergeLive(base){
-  const names=Object.keys(liveData);
-  if(!names.length) return {items:base,active:[],blocks:0};
-  const fresh=[],active=[],blocks=new Set();
-  names.forEach(n=>{
-    const d=liveData[n];
-    (d.rows||[]).forEach(r=>{fresh.push(r);blocks.add((r.op||'')+'|'+(r.province||'全国'));});
-    active.push((CARRIERS[d.op]&&CARRIERS[d.op].name)||d.op||n);
-  });
-  const bk=r=>(r.op||'')+'|'+(r.province||'全国');
-  const kept=(base||[]).filter(r=>!blocks.has(bk(r)));
-  return {items:kept.concat(fresh),active:[...new Set(active)],blocks:blocks.size};
-}
-// 探测每个 live 分片：meta 变化时拉全文；404/失败视为该片尚未发布或已完成清理。
-async function pollLive(){
-  await Promise.all(LIVE_SHARDS.map(async name=>{
-    try{
-      const m=await fetchJSON(DATA_BASE+'live/'+name+'.meta.json',4000);
-      if(!m||!m.ts) return;
-      if(liveData[name]&&liveData[name].ts===m.ts) return; // 无变化
-      const d=await fetchJSON(DATA_BASE+'live/'+name+'.json',10000);
-      if(d&&Array.isArray(d.rows)) liveData[name]={ts:m.ts,op:d.op,rows:d.rows};
-    }catch(e){} // 404：该片还没发布，或 merge 已清理——忽略
+// 并行探测 4 家 latest.json：返回有变化的 op 列表（首次加载全部视为变化）
+async function probeOps(firstLoad){
+  const metas=await Promise.all(OPS.map(async op=>{
+    try{return await fetchJSON(DATA_BASE+'ops/'+op+'/latest.json',7000);}
+    catch(e){return null;}
   }));
+  const changed=[];
+  OPS.forEach((op,i)=>{
+    const m=metas[i];
+    if(!m||typeof m.count!=='number') return;
+    const sig=opSig(m);
+    if(firstLoad||!opState[op]||opState[op].sig!==sig) changed.push([op,m,sig]);
+  });
+  return changed;
 }
-function startLivePolling(){
-  if(liveTimer) return;
-  liveTimer=setInterval(async()=>{
-    const sig=()=>Object.keys(liveData).sort().map(n=>n+':'+liveData[n].ts).join('|');
-    const before=sig();
-    await pollLive();
-    if(sig()!==before) applyData(baseMetaRaw,baseItemsRaw,baseHistRaw,'实时抓取中');
-    // 本轮 merge 完成：latest.json 签名变化 -> 清掉 live，回到统一数据
+// 拉取指定运营商的 items/history，更新 opState
+async function refreshOps(list){
+  if(!list.length) return 0;
+  let n=0;
+  await Promise.all(list.map(async([op,m,sig])=>{
     try{
-      const meta=await fetchJSON(DATA_BASE+'latest.json',6000);
-      if(baseMetaRaw&&dataSig(meta)!==dataSig(baseMetaRaw)&&Object.keys(liveData).length){
-        liveData={};
-        await loadData();
+      const [items,hist]=await Promise.all([
+        fetchJSON(DATA_BASE+'ops/'+op+'/items.json',20000),
+        fetchJSON(DATA_BASE+'ops/'+op+'/history.json',12000).catch(()=>[])
+      ]);
+      if(!Array.isArray(items)) return;
+      opState[op]={sig,meta:m,items,hist:Array.isArray(hist)?hist:[]};
+      n++;
+    }catch(e){}
+  }));
+  return n;
+}
+function allSigs(){return OPS.map(op=>op+(opState[op]?':'+opState[op].sig:'')).join('|');}
+function startPolling(){
+  if(opTimer) return;
+  opTimer=setInterval(async()=>{
+    try{
+      const changed=await probeOps(false);
+      if(changed.length){
+        const n=await refreshOps(changed);
+        if(n){writeCache();applyData('实时抓取中');}
       }
     }catch(e){}
-  },30000); // 30 秒探测一次，meta 仅几十字节
+  },30000); // 30 秒探测一次，各家 meta 仅几十字节
 }
 async function loadData(){
   const cached=readCache();
-  // 1) 命中本地缓存：先用缓存即时渲染，页面秒开
-  if(cached) applyData(cached.meta,cached.items,cached.hist,'本地缓存');
-  // 2) 后台增量校验：只拉极小的 latest.json（约 200B），无变化就结束，不再下载 3.4MB
+  // 1) 命中本地缓存：先即时渲染，页面秒开
+  if(cached){opState=cached;applyData('本地缓存');}
+  // 2) 并行探测 4 家 latest.json，只拉变化家的完整数据
+  let changed=[];
   try{
-    const meta=await fetchJSON(DATA_BASE+'latest.json',8000);
-    if(cached&&cached.sig===dataSig(meta)){
-      // 数据未变化，把标签改回"真实数据"（缓存内容与线上一致）
-      const tag=$('dataTag');tag.textContent='真实数据';tag.style.background='#dcfce7';tag.style.color='#166534';
+    changed=await probeOps(!cached);
+  }catch(e){}
+  if(!changed.length&&cached){
+    // 4 家签名都没变：缓存即最新
+    const tag=$('dataTag');tag.textContent='真实数据';tag.style.background='#dcfce7';tag.style.color='#166534';
+  }else if(changed.length){
+    const n=await refreshOps(changed);
+    if(n){writeCache();applyData('真实数据');}
+    else if(!cached){
+      const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
+      $('notice').textContent='当前展示内置示例数据（未能加载线上数据）。实际资费以运营商官网与营业厅公示为准。';
       return;
     }
-    // 3) 有变化或无缓存：才拉取完整的 items/history
-    const [items,hist]=await Promise.all([
-      fetchJSON(DATA_BASE+'items.json',20000),
-      fetchJSON(DATA_BASE+'history.json',10000).catch(()=>[])
-    ]);
-    if(!Array.isArray(items)||items.length<10) throw new Error('数据量异常');
-    writeCache(meta,items,hist);
-    applyData(meta,items,hist,'真实数据');
-  }catch(e){
-    if(cached){
-      // 有缓存：继续用缓存，仅提示校验失败，不退回示例数据
-      $('notice').textContent='当前显示本地缓存数据（线上校验失败：'+e.message+'）· 实际资费以运营商官网与营业厅公示为准。';
-    }else{
-      // 无缓存：降级示例数据
-      const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
-      $('notice').textContent='当前展示内置示例数据（未能加载线上数据：'+e.message+'）。实际资费以运营商官网与营业厅公示为准。';
-      const d=new Date(),p=n=>String(n).padStart(2,'0');
-      $('sync').textContent='示例 · '+p(d.getMonth()+1)+'-'+p(d.getDate());
-    }
+  }else if(!cached){
+    // 无任何线上数据
+    const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
+    $('notice').textContent='当前展示内置示例数据（未能加载线上数据）。实际资费以运营商官网与营业厅公示为准。';
+    return;
   }
-  // 页面打开时先探测一次正在发布的实时分片，再启动后台轮询
-  try{
-    await pollLive();
-    if(Object.keys(liveData).length) applyData(baseMetaRaw,baseItemsRaw,baseHistRaw,'实时抓取中');
-  }catch(e){}
-  startLivePolling();
+  startPolling();
 }
 
 /* ---------- 启动 ---------- */
