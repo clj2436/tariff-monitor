@@ -22,6 +22,24 @@ import json
 import os
 import re
 import sys
+import time
+
+# ── 全局时间护栏 ──
+# GitHub Actions 作业有硬性执行上限（本仓此前 120 分钟就被强杀，
+# 强杀会导致本轮所有抓取结果丢失、连旧数据 diff 都来不及做）。
+# 这里给整轮抓取设一个预算，到点后剩余板块直接跳过：
+# 已抓到的板块正常写入，未抓板块由下游「板块级合并」保留上一轮旧数据，
+# 因此不会产生假下架，job 也能在 GitHub 超时前正常结束并提交。
+_DEADLINE = None
+
+
+def _setup_deadline(seconds):
+    global _DEADLINE
+    _DEADLINE = time.time() + seconds
+
+
+def _expired():
+    return _DEADLINE is not None and time.time() > _DEADLINE
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PIPE = os.path.join(HERE, "pipelines")
@@ -226,6 +244,10 @@ def do_mobile(sections):
     secs = sections or ["quanguo"] + [s for s, _, _ in
                                       __import__("province_table").PROVINCES]
     for sec in secs:
+        if _expired():
+            print(f"[移动] 全局时间预算耗尽，跳过 {sec} 及其后板块（保留旧数据）")
+            failed.extend(secs[secs.index(sec):])
+            break
         code = "731" if sec == "quanguo" else SECTION_INFO.get(sec, ("731", sec, sec))[0]
         try:
             data = fetcher.fetch_section(sec, code)
@@ -282,6 +304,11 @@ def do_common(op, sections):
         sc = job[0]
         if wanted and sc not in wanted:
             continue
+        if _expired():
+            print(f"[{op}] 全局时间预算耗尽，跳过 {sc} 及其后板块（保留旧数据）")
+            failed.extend(j[0] for j in jobs[jobs.index(job):]
+                          if not wanted or j[0] in wanted)
+            break
         planned += 1
         try:
             if op == "gb":
@@ -390,6 +417,13 @@ def main():
     sections = [scope_of(s) for s in sections]
     # 去重保序
     sections = list(dict.fromkeys(sections)) or None
+
+    # 全局时间护栏（分钟）；0 表示不启用。留足余量给 diff/提交/钉钉推送，
+    # 默认 100 分钟 < workflow 的 120 分钟上限。
+    budget_min = int(os.getenv("GLOBAL_TIME_BUDGET_MIN") or "100")
+    if budget_min > 0:
+        _setup_deadline(budget_min * 60)
+        print(f"[全局] 时间预算 {budget_min} 分钟，到点跳过剩余板块（保留旧数据）")
 
     rows = []
     for op in carriers:

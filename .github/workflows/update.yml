@@ -18,7 +18,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180   # 外层上限；脚本自身 100 分钟护栏会先触发，正常提交而非被强杀
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -39,7 +39,11 @@ jobs:
           # 可在仓库 Settings → Secrets and variables → Actions → Variables 中调节
           TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
-          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
+          # 联通每省抓取预算(秒)：32 省 × 120s ≈ 64 分钟是上一轮超时的主因，
+          # 覆盖率主要靠费用分段扫描保证，采样循环 20s 足够收敛。
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '20' }}
+          # 全局护栏(分钟)：到点跳过未抓板块、保留旧数据，确保 job 在 120 分钟上限前结束。
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '100' }}
         # TRACK_PROVINCES 由脚本直接读取（支持中文省名/拼音），留空则全量抓取
         run: python3 scripts/build_data.py --out data
 
