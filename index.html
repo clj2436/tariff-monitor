@@ -1040,6 +1040,14 @@ function adaptHistory(raw){
 
 /* ---------- 数据加载：本地缓存 + 增量校验 + 超时保护 ---------- */
 const CACHE_KEY='tariff_cache_v2';
+// 边跑边同步：抓取中的运营商会发布 data/live/{carrier}-{idx}.json，
+// 网页加载/定时探测这些分片，按(运营商,省份)板块覆盖基底数据，实时可见。
+const LIVE_SHARDS=['mobile-0','telecom-0','gb-0','unicom-0','unicom-1'];
+let liveData={};          // name -> {ts,op,rows}
+let liveTimer=null;
+let baseItemsRaw=[];      // items.json 原始 rows（未 adapt）
+let baseHistRaw=[];       // history.json 原始 rows
+let baseMetaRaw=null;
 // 带超时的 fetch，避免网络异常时无限卡在"正在加载"
 function fetchJSON(url,ms){
   return new Promise((resolve,reject)=>{
@@ -1064,15 +1072,69 @@ function writeCache(meta,items,hist){
 function dataSig(meta){return String(meta&&meta.timestamp||'')+'|'+(meta&&meta.count||0);}
 function applyData(meta,items,hist,label){
   window.__meta=meta;
-  DATA=adaptRemote(items);
+  baseItemsRaw=items||[];
+  baseHistRaw=hist||[];
+  baseMetaRaw=meta||{};
+  const merged=mergeLive(baseItemsRaw);
+  DATA=adaptRemote(merged.items);
   HISTORY=adaptHistory(hist);
   const tag=$('dataTag');
   tag.textContent=label||'真实数据';
   if(label==='真实数据'||!label){tag.style.background='#dcfce7';tag.style.color='#166534';}
   else{tag.style.background='';tag.style.color='';}
-  $('notice').textContent='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
-  $('sync').textContent='更新于 '+(meta.date||'--');
+  let notice='数据由 GitHub Actions 定时抓取运营商官网资费专区生成 · 更新于 '+(meta.timestamp||meta.date||'--')+' · 实际资费以运营商官网与营业厅公示为准。';
+  if(merged.active.length){
+    $('dataTag').textContent='实时抓取中';
+    tag.style.background='#fef3c7';tag.style.color='#92400e';
+    notice='抓取进行中：'+merged.active.join('、')+' '+merged.blocks+' 个板块已是实时数据，其余为上一轮数据；全部完成后自动汇总。'+'实际资费以运营商官网与营业厅公示为准。';
+  }
+  $('notice').textContent=notice;
+  $('sync').textContent=merged.active.length?('实时 · '+merged.active.join('/')):('更新于 '+(meta.date||'--'));
   render();
+}
+// live 分片按板块覆盖基底：已发布分片的(运营商,省份)用新数据，其余保留基底；
+// 每个分片可能只含部分省份，故以板块为单位而非整运营商替换。
+function mergeLive(base){
+  const names=Object.keys(liveData);
+  if(!names.length) return {items:base,active:[],blocks:0};
+  const fresh=[],active=[],blocks=new Set();
+  names.forEach(n=>{
+    const d=liveData[n];
+    (d.rows||[]).forEach(r=>{fresh.push(r);blocks.add((r.op||'')+'|'+(r.province||'全国'));});
+    active.push((CARRIERS[d.op]&&CARRIERS[d.op].name)||d.op||n);
+  });
+  const bk=r=>(r.op||'')+'|'+(r.province||'全国');
+  const kept=(base||[]).filter(r=>!blocks.has(bk(r)));
+  return {items:kept.concat(fresh),active:[...new Set(active)],blocks:blocks.size};
+}
+// 探测每个 live 分片：meta 变化时拉全文；404/失败视为该片尚未发布或已完成清理。
+async function pollLive(){
+  await Promise.all(LIVE_SHARDS.map(async name=>{
+    try{
+      const m=await fetchJSON(DATA_BASE+'live/'+name+'.meta.json',4000);
+      if(!m||!m.ts) return;
+      if(liveData[name]&&liveData[name].ts===m.ts) return; // 无变化
+      const d=await fetchJSON(DATA_BASE+'live/'+name+'.json',10000);
+      if(d&&Array.isArray(d.rows)) liveData[name]={ts:m.ts,op:d.op,rows:d.rows};
+    }catch(e){} // 404：该片还没发布，或 merge 已清理——忽略
+  }));
+}
+function startLivePolling(){
+  if(liveTimer) return;
+  liveTimer=setInterval(async()=>{
+    const sig=()=>Object.keys(liveData).sort().map(n=>n+':'+liveData[n].ts).join('|');
+    const before=sig();
+    await pollLive();
+    if(sig()!==before) applyData(baseMetaRaw,baseItemsRaw,baseHistRaw,'实时抓取中');
+    // 本轮 merge 完成：latest.json 签名变化 -> 清掉 live，回到统一数据
+    try{
+      const meta=await fetchJSON(DATA_BASE+'latest.json',6000);
+      if(baseMetaRaw&&dataSig(meta)!==dataSig(baseMetaRaw)&&Object.keys(liveData).length){
+        liveData={};
+        await loadData();
+      }
+    }catch(e){}
+  },30000); // 30 秒探测一次，meta 仅几十字节
 }
 async function loadData(){
   const cached=readCache();
@@ -1106,6 +1168,12 @@ async function loadData(){
       $('sync').textContent='示例 · '+p(d.getMonth()+1)+'-'+p(d.getDate());
     }
   }
+  // 页面打开时先探测一次正在发布的实时分片，再启动后台轮询
+  try{
+    await pollLive();
+    if(Object.keys(liveData).length) applyData(baseMetaRaw,baseItemsRaw,baseHistRaw,'实时抓取中');
+  }catch(e){}
+  startLivePolling();
 }
 
 /* ---------- 启动 ---------- */

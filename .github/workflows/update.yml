@@ -80,6 +80,30 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      # 边跑边同步：本片抓完立即发布 live 文件，网页按板块覆盖基底数据，
+      # 用户几分钟内就能看到已完成的运营商，不用等最慢的联通。
+      # 变化推送仍在 merge 统一做，避免不完整数据误报下架。
+      - name: 发布实时分片（网页渐进可见）
+        run: |
+          SHARD=${{ matrix.carrier }}-${{ matrix.shard_idx }}
+          python3 scripts/publish_live.py --raw raw/$SHARD.json \
+            --out data/live/$SHARD.json --op ${{ matrix.carrier }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/live/$SHARD.json data/live/$SHARD.meta.json
+          if git diff --cached --quiet; then
+            echo "实时分片无变化，跳过提交"
+          else
+            git commit -m "live: 发布 $SHARD [skip ci]"
+            # 5 片并行 push 会互相撞车，rebase 重试
+            for i in 1 2 3 4 5 6; do
+              if git push; then echo "实时分片已发布：$SHARD"; break; fi
+              echo "push 冲突，rebase 后重试($i/6)"
+              git pull --rebase origin main || git rebase --abort || true
+              sleep 3
+            done
+          fi
+
   merge:
     needs: scrape
     if: always()   # 即使个别分片失败也合并：缺失运营商由板块级合并保留旧数据
@@ -107,6 +131,13 @@ jobs:
 
       - name: 合并 + 差异对比
         run: python3 scripts/build_data.py --merge-from raw --out data
+
+      # 完整数据已生成，清掉实时分片：网页回到统一的 items.json，
+      # 否则 live 会永久覆盖、下次抓取前 stale 数据一直显示。
+      - name: 清理实时分片
+        run: |
+          rm -rf data/live
+          echo "实时分片已清理，网页将切换到完整合并数据"
 
       - name: 检查数据完整性
         run: |
