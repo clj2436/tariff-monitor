@@ -29,6 +29,11 @@ OP_NAME = {
     "telecom-focus": "中国电信重点专项", "unicom-focus": "中国联通重点专项",
     "gb-focus": "中国广电重点专项",
 }
+OP_COLOR = {"mobile": "#0f9d6e", "telecom": "#2f6fdb", "unicom": "#e11d2a", "gb": "#7c3aed"}
+
+
+def _op_color(op):
+    return OP_COLOR.get((op or "").split("-")[0], "#6b7280")
 FIELD_LABELS = {
     "price": "月费", "data": "通用流量", "voice": "语音", "broadband": "宽带",
     "note": "资费说明", "note_full": "完整说明",
@@ -226,6 +231,7 @@ def _prepare(rows):
         out.append({
             "kind": h.get("kind") or "修改",
             "op": OP_NAME.get(h.get("op"), h.get("op") or ""),
+            "opColor": _op_color(h.get("op")),
             "province": h.get("province") or "全国",
             "name": h.get("name") or "未命名资费",
             "code": h.get("code") or "",
@@ -243,7 +249,7 @@ TPL = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{--bg:#f5f7fb;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--blue:#2563eb;--red:#dc2626;--green:#059669}
+:root{--bg:#f5f7fb;--card:#fff;--card2:#fafbfc;--ink:#1f2937;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--border:#e5e7eb;--blue:#2563eb;--blue-soft:#eff6ff;--red:#dc2626;--green:#059669;--warn:#b45309}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 .wrap{max-width:800px;margin:0 auto;padding:20px 16px}
 h1{font-size:19px;margin:0 0 3px;font-weight:700}
@@ -265,16 +271,35 @@ h1{font-size:19px;margin:0 0 3px;font-weight:700}
 .meta{color:var(--muted);font-size:11.5px;margin-top:2px}
 .summary{color:#374151;font-size:12.5px;margin-top:4px;word-break:break-word}
 .arw{color:var(--muted);font-size:11px;transition:transform .2s;margin-top:3px}.item.open .arw{transform:rotate(90deg)}
-.body{display:none;padding:0 14px 13px;border-top:1px dashed var(--line)}
+.body{display:none;padding:0 16px 16px;border-top:1px dashed var(--line)}
 .item.open .body{display:block}
-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
-th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top;word-break:break-word}
-th{background:#f3f4f6;width:92px;white-space:nowrap;color:var(--muted);font-weight:600}
-.before{color:var(--red);text-decoration:line-through;opacity:.75}.after{color:var(--green)}
+/* 以下详情样式与站点「查看」弹窗保持一致 */
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--blue-soft);color:var(--blue)}
+.op-badge{display:inline-flex;align-items:center;gap:5px;background:var(--card2);color:var(--oc);padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.op-badge i{width:6px;height:6px;border-radius:50%;background:var(--oc)}
+.chg{font-weight:700;font-size:11.5px;white-space:nowrap}
+.chg.new{color:var(--blue)}.chg.off{color:var(--muted)}.chg.mod{color:var(--warn)}
+.detail-meta{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 4px;font-size:11px;color:var(--muted)}
+.detail-meta .pill{font-size:10.5px}
+.note-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card2);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--blue)}
+.pub-table{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:9px;overflow:hidden;font-size:12.5px;margin-bottom:4px}
+.pub-table td{border:1px solid var(--border);padding:9px 13px;vertical-align:top;word-break:break-word}
+.pub-table td.k{width:120px;background:var(--card2);color:var(--muted);font-weight:600;white-space:nowrap}
+.pub-list{margin:0;padding:0;list-style:none}
+.pub-list li{position:relative;padding:7px 0 7px 15px;line-height:1.75;border-bottom:1px dashed var(--border);word-break:break-word}
+.pub-list li:last-child{border-bottom:0}
+.pub-list li::before{content:"";position:absolute;left:2px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--blue)}
+.pub-list li b{color:var(--blue);font-weight:700}
+.pub-group-title{font-size:12px;font-weight:700;color:var(--text);padding:14px 2px 7px;display:flex;align-items:center;gap:7px}
+.pub-group-title::before{content:"";width:3px;height:13px;background:var(--blue);border-radius:2px}
+.diff-table th{text-align:left;color:var(--muted);font-size:11.5px;font-weight:600;padding:8px 13px;border:1px solid var(--border);background:var(--card2)}
+.diff-before{color:#b91c1c;background:rgba(239,68,68,.06);word-break:break-word}
+.diff-after{color:#15803d;background:rgba(34,197,94,.06);word-break:break-word}
+.detail-note{padding:14px 18px;background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12.5px;line-height:1.95;white-space:pre-wrap}
+.detail-note .para{padding:3px 0}
+.detail-note .para+.para{border-top:1px dashed var(--border);margin-top:4px;padding-top:10px}
+.detail-note .lead{font-weight:700;color:var(--blue)}
 .nodiff{color:var(--muted);font-size:12.5px;padding:8px 0}
-.group{font-weight:600;color:var(--muted);font-size:12px;margin:12px 0 4px}
-.rule{padding:3px 0;color:#374151;font-size:12.5px}.rule b{color:var(--muted);font-weight:600}
-.svc{white-space:pre-wrap;color:#374151;font-size:12.5px}
 .empty{text-align:center;color:var(--muted);padding:36px 0}
 .foot{text-align:center;color:var(--muted);font-size:11.5px;margin:22px 0}
 @media(max-width:600px){.wrap{padding:14px 10px}h1{font-size:17px}.bar input{min-width:100%}}
@@ -299,21 +324,26 @@ function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
   $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · __SUBTITLE__';
 }
-function rowsTable(rows){return rows&&rows.length?'<table>'+rows.map(r=>'<tr><th>'+esc(r[0])+'</th><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'';}
-function ruleList(rows){return rows&&rows.length?rows.map(r=>'<div class="rule"><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</div>').join(''):'<div class="nodiff">无</div>';}
+function pubTable(rows){return rows&&rows.length?'<table class="pub-table">'+rows.map(r=>'<tr><td class="k">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'<div class="nodiff">无</div>';}
+function pubList(rows){return rows&&rows.length?'<ul class="pub-list">'+rows.map(r=>'<li><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</li>').join('')+'</ul>':'<div class="nodiff">无</div>';}
 function detail(h){
+  const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+  const meta='<div class="detail-meta"><span class="op-badge" style="--oc:'+esc(h.opColor)+'"><i></i>'+esc(h.op)+'</span>'+
+    '<span class="pill">'+esc(h.province)+'</span><span class="pill">'+esc(h.date)+'</span>'+
+    '<span class="chg '+c+'">'+esc(h.kind)+'</span>'+
+    (h.code?'<span class="pill">编号 <span class="note-code">'+esc(h.code)+'</span></span>':'')+'</div>';
   const ch=h.changes||[];
-  const cmp=ch.length?'<div class="group">本次变更</div><table>'+ch.map(c=>'<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>').join('')+'</table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
+  const cmp=ch.length?'<div class="pub-group-title">本次变更</div><table class="pub-table diff-table"><thead><tr><th>变更字段</th><th>变更前</th><th>变更后</th></tr></thead><tbody>'+ch.map(x=>'<tr><td class="k">'+esc(x.label)+'</td><td class="diff-before">'+esc(x.before)+'</td><td class="diff-after">'+esc(x.after)+'</td></tr>').join('')+'</tbody></table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
   const f=h.full||{};
-  const svc=(f.service&&f.service.length)?f.service.map(p=>'<div class="rule">'+(p.lead?'<b>'+esc(p.lead)+'</b>':'')+esc(p.text)+'</div>').join(''):'<div class="nodiff">暂无其他服务内容说明。</div>';
-  return cmp+
-    '<div class="group">完整资费展示</div>'+
-    '<div class="group">基础信息</div>'+rowsTable(f.base)+
-    '<div class="group">资费内容</div>'+rowsTable(f.resource)+
-    '<div class="group">业务规则</div>'+ruleList(f.rules)+
-    (f.extra&&f.extra.length?'<div class="group">补充信息</div>'+ruleList(f.extra):'')+
-    '<div class="group">其他服务内容</div>'+svc+
-    (f.note_full?'<div class="group">完整说明</div><div class="svc">'+esc(f.note_full)+'</div>':'')+
+  const svc=(f.service&&f.service.length)?'<div class="detail-note">'+f.service.map(p=>'<div class="para">'+(p.lead?'<span class="lead">'+esc(p.lead)+'</span>':'')+esc(p.text)+'</div>').join('')+'</div>':'<div class="nodiff">暂无其他服务内容说明。</div>';
+  return meta+cmp+
+    '<div class="pub-group-title">完整资费展示</div>'+
+    '<div class="pub-group-title">基础信息</div>'+pubTable(f.base)+
+    '<div class="pub-group-title">资费内容</div>'+pubTable(f.resource)+
+    '<div class="pub-group-title">业务规则</div>'+pubList(f.rules)+
+    (f.extra&&f.extra.length?'<div class="pub-group-title">补充信息</div>'+pubList(f.extra):'')+
+    '<div class="pub-group-title">其他服务内容</div>'+svc+
+    (f.note_full?'<div class="pub-group-title">完整说明</div><div class="detail-note">'+esc(f.note_full)+'</div>':'')+
     '<div class="nodiff">数据来源：'+esc(f.source)+' · 采集日期 '+esc(f.date)+'</div>';
 }
 function draw(){
