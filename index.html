@@ -74,10 +74,10 @@ button{cursor:pointer}
 .dist-fill{height:100%;border-radius:99px;background:var(--blue)}
 .dist-val{text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
 .prov-list{padding:8px 18px 14px}
-/* 省份统计：全部省份用两列铺开，避免只看到一部分 */
-.prov-list.all{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;padding:8px 18px 14px}
+/* 省份统计：全部省份单列竖排 */
+.prov-list.all{padding:8px 18px 14px}
 .prov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px}
-.prov-item:last-child,.prov-item:nth-last-child(2){border-bottom:0}
+.prov-item:last-child{border-bottom:0}
 .prov-item b{font-variant-numeric:tabular-nums}
 .prov-more{text-align:center;color:var(--blue);font-size:12px;padding:10px;cursor:pointer;font-weight:600}
 .prov-pick{cursor:pointer;border-radius:5px;padding-left:6px;padding-right:6px;transition:.15s}
