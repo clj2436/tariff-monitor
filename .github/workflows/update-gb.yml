@@ -65,6 +65,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: ${{ vars.WATCH_RULES || 'gb:*' }}
+          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
+          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -84,6 +86,8 @@ jobs:
             --exclude-rules 'gb:江西|吉林|贵州|四川|山西' \
             --input data/ops/gb/current_changes.json \
             --state data/ops/gb/.notify_state.json \
+            --bot other \
+
             --tag '其他·广电'
 
       - name: 提交本家数据

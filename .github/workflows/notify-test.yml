@@ -30,6 +30,10 @@ jobs:
       - name: 发送测试消息
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
+          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
+          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}

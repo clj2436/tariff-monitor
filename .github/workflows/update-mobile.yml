@@ -126,6 +126,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: ${{ vars.WATCH_RULES || 'mobile:*' }}
+          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
+          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -145,6 +147,8 @@ jobs:
             --exclude-rules 'mobile:江西|山西|贵州|吉林|四川' \
             --input data/ops/mobile/current_changes.json \
             --state data/ops/mobile/.notify_state.json \
+            --bot other \
+
             --tag '其他·移动'
 
       - name: 提交本家数据

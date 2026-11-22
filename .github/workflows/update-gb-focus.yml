@@ -74,6 +74,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: 'gb:江西|吉林|贵州|四川|山西'
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -92,6 +94,8 @@ jobs:
             --force-rules 'gb:江西|吉林|贵州|四川|山西' \
             --input data/ops/gb-focus/current_changes.json \
             --state data/ops/gb-focus/.notify_state.json \
+            --bot focus \
+
             --tag '★重点·广电'
 
       - name: 提交专项数据

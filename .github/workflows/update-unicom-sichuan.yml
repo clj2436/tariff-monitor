@@ -72,6 +72,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: 'unicom:四川'
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -90,7 +92,9 @@ jobs:
             --force-rules 'unicom:四川' \
             --input data/ops/unicom-sichuan/current_changes.json \
             --state data/ops/unicom-sichuan/.notify_state.json \
-            --tag '四川联通'
+            --bot focus \
+
+            --tag '★重点·联通四川'
 
       - name: 提交专项数据
         run: |

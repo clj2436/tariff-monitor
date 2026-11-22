@@ -8,8 +8,11 @@
 
 环境变量：
   NOTIFY_CHANNELS      可选，逗号分隔：dingtalk,feishu,wecom,email 或 all；默认 dingtalk
-  DINGTALK_WEBHOOK     钉钉群机器人 Webhook（含 access_token）
-  DINGTALK_SECRET      钉钉加签密钥（机器人安全设置为「加签」时填）
+  DINGTALK_WEBHOOK     钉钉通用机器人 Webhook（兜底；重点/其他专用未配置时使用）
+  DINGTALK_SECRET      钉钉通用加签密钥
+  DINGTALK_WEBHOOK_FOCUS / DINGTALK_SECRET_FOCUS   ★重点 一路专用机器人（5 个专项源）
+  DINGTALK_WEBHOOK_OTHER / DINGTALK_SECRET_OTHER   其他·X 一路专用机器人（4 个全量源）
+  --bot focus|other    指定本轮走哪一路机器人；测试模式留空则检测全部已配置机器人
   FEISHU_WEBHOOK       飞书自定义机器人 Webhook
   FEISHU_SECRET        飞书签名校验密钥（可选）
   WECOM_WEBHOOK        企业微信群机器人 Webhook
@@ -19,6 +22,9 @@
   EXCLUDE_RULES        可选，排除规则（格式同上），命中不推送；全量源用来剔除专项负责的重点组合
   SITE_URL             可选，资费专区地址，显示在消息末尾
   NOTIFY_MAX_ITEMS     可选，单条消息最多展示多少条变更，默认 30
+  DINGTALK_SEND_GAP    可选，两次钉钉发送最小间隔秒数，默认 1.0（两路机器人之间也生效）
+  DINGTALK_MAX_CHARS   可选，单条 markdown 最大字符数，默认 12000（超出截断防钉钉拒收）
+  DINGTALK_MAX_RETRIES 可选，限流/网络错误最大重试次数，默认 4（指数退避 + 随机抖动）
 
 关注规则格式：
   运营商:省份|省份;运营商:省份
@@ -48,6 +54,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import re
 import smtplib
 import sys
@@ -195,12 +202,55 @@ def build_markdown(changes, rules, site_url, max_items, tag=""):
         lines.append("> 另有 %d 条未展示，请查看完整资费专区。" % (len(changes) - shown))
     if site_url:
         lines.append("[查看完整资费专区](%s)" % site_url)
-    return "\n".join(lines)
+    out = "\n".join(lines)
+    # 钉钉单条 markdown 有长度上限，超长直接被拒；截断后仍给出完整专区提示
+    try:
+        max_chars = int(os.environ.get("DINGTALK_MAX_CHARS", "12000") or 12000)
+    except ValueError:
+        max_chars = 12000
+    if max_chars > 0 and len(out) > max_chars:
+        out = out[:max_chars] + "\n\n> ⚠️ 消息过长已截断，请到资费专区查看完整内容。"
+    return out
 
 
 # 钉钉限流相关错误码/状态：130101 请求过于频繁、130102 机器人被限流、429 Too Many Requests
 _RATELIMIT_CODES = {130101, 130102}
-_RATELIMIT_MSG = ("too many", "频率", "频繁", "限流", "rate limit", "flow control")
+_RATELIMIT_MSG = ("too many", "频率", "频繁", "限流", "rate limit", "flow control", "throttled")
+
+# 钉钉官方限制：单个机器人每分钟约 20 条。脚本层再做两道保险：
+#  1) 任意两次发送之间强制最小间隔（含两路机器人、含重试）；
+#  2) 退避加随机抖动，避免多个 workflow 同时撞限流后同步重试。
+try:
+    _SEND_GAP = max(0.0, float(os.environ.get("DINGTALK_SEND_GAP", "1.0") or 1.0))
+except ValueError:
+    _SEND_GAP = 1.0
+_last_send_at = 0.0
+
+
+def _throttle_send():
+    """全局发送节流：两路机器人、重试请求之间都保持最小间隔。"""
+    global _last_send_at
+    gap = _SEND_GAP - (time.time() - _last_send_at)
+    if gap > 0:
+        time.sleep(gap)
+    _last_send_at = time.time()
+
+
+def _ratelimit_wait(result, base):
+    """若服务端 errmsg 给出明确秒数，则等待至少该秒数 + 1 秒缓冲。"""
+    msg = str(result.get("errmsg", "")) if result else ""
+    m = re.search(r"(\d+)\s*(?:s|秒|seconds?)", msg, re.I)
+    if m:
+        try:
+            return max(base, int(m.group(1)) + 1)
+        except ValueError:
+            pass
+    return base
+
+
+def _backoff(attempt):
+    """指数退避 + 0~1.5s 随机抖动，避免多实例同步重试。"""
+    return round(2 ** (attempt + 1) + random.uniform(0, 1.5), 1)
 
 
 def _is_ratelimit(http_err=None, result=None):
@@ -215,12 +265,18 @@ def _is_ratelimit(http_err=None, result=None):
     return False
 
 
-def send(webhook, secret, text, max_retries=4):
-    """发送钉钉消息；遇限流按 2/4/8/16s 指数退避重试，最多 max_retries 次。
+def send(webhook, secret, text, max_retries=None):
+    """发送钉钉消息；遇限流按指数退避 + 随机抖动重试。
 
     加签时间戳每次重试都重新生成——钉钉对 timestamp 有 1 小时有效性校验，
     且退避重试可能跨越秒边界，复用旧签名会被判为非法。
+    发送前统一走全局节流，两路机器人之间也不会瞬时连发触发限流。
     """
+    if max_retries is None:
+        try:
+            max_retries = int(os.environ.get("DINGTALK_MAX_RETRIES", "4") or 4)
+        except ValueError:
+            max_retries = 4
     payload = {"msgtype": "markdown", "markdown": {"title": "资费变动提醒", "text": text}}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     last = None
@@ -236,6 +292,7 @@ def send(webhook, secret, text, max_retries=4):
             url, data=body,
             headers={"Content-Type": "application/json; charset=utf-8"},
         )
+        _throttle_send()
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
@@ -244,7 +301,7 @@ def send(webhook, secret, text, max_retries=4):
                 return
             last = RuntimeError("钉钉返回 errcode=%s errmsg=%s" % (code, result.get("errmsg")))
             if _is_ratelimit(result=result) and attempt < max_retries:
-                wait = 2 ** (attempt + 1)
+                wait = _ratelimit_wait(result, _backoff(attempt))
                 print("[钉钉] 触发限流，%ds 后重试(%d/%d)" % (wait, attempt + 2, max_retries + 1), file=sys.stderr)
                 time.sleep(wait)
                 continue
@@ -252,7 +309,7 @@ def send(webhook, secret, text, max_retries=4):
         except urllib.error.HTTPError as e:
             last = e
             if _is_ratelimit(http_err=e) and attempt < max_retries:
-                wait = 2 ** (attempt + 1)
+                wait = _backoff(attempt)
                 print("[钉钉] HTTP 429 限流，%ds 后重试(%d/%d)" % (wait, attempt + 2, max_retries + 1), file=sys.stderr)
                 time.sleep(wait)
                 continue
@@ -261,7 +318,7 @@ def send(webhook, secret, text, max_retries=4):
             last = e
             # 网络类错误也做有限退避，避免瞬时抖动导致整轮推送失败
             if attempt < max_retries:
-                wait = 2 ** (attempt + 1)
+                wait = _backoff(attempt)
                 print("[钉钉] 网络异常，%ds 后重试(%d/%d): %s" % (wait, attempt + 2, max_retries + 1, e), file=sys.stderr)
                 time.sleep(wait)
                 continue
@@ -449,20 +506,37 @@ def send_email(title, text):
     return True
 
 
-def send_all(channels, title, text):
+def dingtalk_creds(bot):
+    """按推送路线选钉钉机器人密钥：focus=重点专项，other=其他省份。
+    两条路线各有独立 Webhook/Secret；若对应路线未配置则回退到通用 DINGTALK_WEBHOOK
+    （兼容只配了一个机器人的旧设置）。返回 (webhook, secret, 机器人标签)。"""
+    generic_w = os.environ.get("DINGTALK_WEBHOOK", "").strip()
+    generic_s = os.environ.get("DINGTALK_SECRET", "").strip()
+    if bot == "focus":
+        w = os.environ.get("DINGTALK_WEBHOOK_FOCUS", "").strip() or generic_w
+        s = os.environ.get("DINGTALK_SECRET_FOCUS", "").strip() or generic_s
+        return w, s, "钉钉·重点"
+    if bot == "other":
+        w = os.environ.get("DINGTALK_WEBHOOK_OTHER", "").strip() or generic_w
+        s = os.environ.get("DINGTALK_SECRET_OTHER", "").strip() or generic_s
+        return w, s, "钉钉·其他"
+    return generic_w, generic_s, "钉钉"
+
+
+def send_all(channels, title, text, bot=""):
     """向所有选中且已配置的通道推送；返回 [(通道, 成功?, 说明)]。"""
     results = []
     for ch in channels:
         if ch == "dingtalk":
-            webhook = os.environ.get("DINGTALK_WEBHOOK", "").strip()
+            webhook, secret, label = dingtalk_creds(bot)
             if not webhook:
-                print("[钉钉] 未配置 DINGTALK_WEBHOOK，跳过")
+                print("[%s] 未配置对应 Webhook，跳过" % label)
                 continue
             try:
-                send(webhook, os.environ.get("DINGTALK_SECRET", "").strip(), text)
-                results.append(("钉钉", True, "已发送"))
+                send(webhook, secret, text)
+                results.append((label, True, "已发送"))
             except Exception as e:
-                results.append(("钉钉", False, str(e)))
+                results.append((label, False, str(e)))
         elif ch == "feishu":
             webhook = os.environ.get("FEISHU_WEBHOOK", "").strip()
             if not webhook:
@@ -566,6 +640,8 @@ def main():
                     help="把本次实际推送成功/预览的变化写出 json，供 merge 汇总剔除")
     ap.add_argument("--tag", default=os.environ.get("NOTIFY_TAG", ""),
                     help="消息来源标注，如「移动·片0」")
+    ap.add_argument("--bot", default=os.environ.get("NOTIFY_BOT", ""), choices=["", "focus", "other"],
+                    help="钉钉机器人路线：focus=★重点、other=其他省份；留空用通用机器人")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
     ap.add_argument("--test", action="store_true", help="发送一条测试消息，验证已配置的通道")
     ap.add_argument("--channels", default=os.environ.get("NOTIFY_CHANNELS", "dingtalk"),
@@ -579,10 +655,29 @@ def main():
         md = ("## ✅ 配置成功\n\n"
               "你的资费变动提醒已成功接入本通道。\n\n"
               "下次抓取到资费变化后，消息会自动推送到这里。")
-        results = send_all(channels, title, md)
+        # 钉钉默认把两路机器人都测一遍（若未单独配置则都回退到通用机器人，只测一次，避免重复）；
+        # 指定 --bot 时只测该路。非钉钉通道照常各测一次。
+        results = []
+        if "dingtalk" in channels:
+            bots = [args.bot] if args.bot else ["focus", "other"]
+            seen_webhooks = set()
+            for b in bots:
+                w, s, label = dingtalk_creds(b)
+                if not w or w in seen_webhooks:
+                    continue
+                seen_webhooks.add(w)
+                try:
+                    send(w, s, md + "\n\n> 机器人路线：**%s**" % label)
+                    results.append((label, True, "已发送"))
+                except Exception as e:
+                    results.append((label, False, str(e)))
+        other_channels = [c for c in channels if c != "dingtalk"]
+        if other_channels:
+            results.extend(send_all(other_channels, title, md))
         if not results:
             write_push_status(args, "noconfig", detail="通道测试：未配置任何通道")
-            print("❌ 没有已配置的通道。请检查 Secrets：DINGTALK_WEBHOOK / FEISHU_WEBHOOK / "
+            print("❌ 没有已配置的通道。请检查 Secrets：DINGTALK_WEBHOOK_FOCUS / "
+                  "DINGTALK_WEBHOOK_OTHER / DINGTALK_WEBHOOK / FEISHU_WEBHOOK / "
                   "WECOM_WEBHOOK / SMTP_HOST 等。")
             return 1
         ok = [n for n, success, _ in results if success]
@@ -658,7 +753,7 @@ def main():
         _emit(args.emit_pushed, hit)
         return 0
     title = "资费变动提醒" + (" · %s" % args.tag if args.tag else "")
-    results = send_all(channels, title, text)
+    results = send_all(channels, title, text, bot=args.bot)
     if not results:
         write_push_status(args, "noconfig", count=len(hit), detail="未配置任何通知通道")
         print("未配置任何通知通道，跳过推送（可用 --dry-run 预览、--test 自检）。")
@@ -704,7 +799,10 @@ def write_push_status(args, status, count=0, detail="", channels=None):
         "detail": str(detail)[:300],
         "channels": channels or [],
         # 只上报是否配置，绝不写入 webhook / 密钥明文
-        "dingtalk": bool(os.environ.get("DINGTALK_WEBHOOK", "").strip()),
+        "bot": getattr(args, "bot", "") or "",
+        "dingtalk": bool(dingtalk_creds(getattr(args, "bot", ""))[0]),
+        "dingtalk_focus": bool(os.environ.get("DINGTALK_WEBHOOK_FOCUS", "").strip() or os.environ.get("DINGTALK_WEBHOOK", "").strip()),
+        "dingtalk_other": bool(os.environ.get("DINGTALK_WEBHOOK_OTHER", "").strip() or os.environ.get("DINGTALK_WEBHOOK", "").strip()),
     }
     try:
         hist = []

@@ -78,6 +78,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: 'mobile:江西|山西|贵州|吉林|四川'
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -96,6 +98,8 @@ jobs:
             --force-rules 'mobile:江西|山西|贵州|吉林|四川' \
             --input data/ops/mobile-focus/current_changes.json \
             --state data/ops/mobile-focus/.notify_state.json \
+            --bot focus \
+
             --tag '★重点·移动'
 
       - name: 提交专项数据

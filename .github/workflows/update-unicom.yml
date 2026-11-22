@@ -124,6 +124,8 @@ jobs:
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
           WATCH_RULES: ${{ vars.WATCH_RULES || 'unicom:*' }}
+          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
+          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -143,6 +145,8 @@ jobs:
             --exclude-rules 'unicom:四川|江西|吉林|贵州|山西' \
             --input data/ops/unicom/current_changes.json \
             --state data/ops/unicom/.notify_state.json \
+            --bot other \
+
             --tag '其他·联通'
 
       - name: 提交本家数据

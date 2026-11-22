@@ -1,7 +1,7 @@
 {
   "version": 2,
   "updated_at": "2026-11-22 18:52:00",
-  "note": "重点组合由各专项 workflow 固定推送（标签★重点）；全量 workflow 只推其他省份（force-rules + exclude-rules，标签其他·X）。rules 字段供网页订阅页展示当前关注范围，实际推送范围已由两路分流固定；max_items/site_url 仍生效。",
+  "note": "重点组合由各专项 workflow 固定推送（标签★重点，走 DINGTALK_WEBHOOK_FOCUS 机器人）；全量 workflow 只推其他省份（force-rules + exclude-rules，标签其他·X，走 DINGTALK_WEBHOOK_OTHER 机器人）。两路专用 Webhook 未配置时回退到通用 DINGTALK_WEBHOOK。四川联通专项归入★重点一路。rules 字段供网页订阅页展示当前关注范围，实际推送范围已由两路分流固定；max_items/site_url 仍生效。",
   "rules": [
     {"op": "mobile", "provinces": ["江西", "山西", "贵州", "吉林", "四川"]},
     {"op": "telecom", "provinces": ["新疆", "吉林", "江西", "贵州", "四川", "山西"]},
