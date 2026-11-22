@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-钉钉资费变动提醒
-================
-读取 build_data.py 产出的「本轮变更」，按关注规则过滤后推送到钉钉群机器人。
+资费变动多通道提醒（钉钉 / 飞书 / 企业微信 / 邮件）
+==================================================
+读取 build_data.py 产出的「本轮变更」，按关注规则过滤后推送。
+默认仍只发钉钉；配了 NOTIFY_CHANNELS 才发其他通道，未配置的通道自动跳过。
 
 环境变量：
-  DINGTALK_WEBHOOK     必填，群机器人 Webhook（含 access_token）
-  DINGTALK_SECRET      可选，加签密钥（机器人安全设置为「加签」时填）
+  NOTIFY_CHANNELS      可选，逗号分隔：dingtalk,feishu,wecom,email 或 all；默认 dingtalk
+  DINGTALK_WEBHOOK     钉钉群机器人 Webhook（含 access_token）
+  DINGTALK_SECRET      钉钉加签密钥（机器人安全设置为「加签」时填）
+  DINGTALK_AT_MOBILES  可选，逗号分隔的手机号，钉钉推送时 @ 这些人
+  FEISHU_WEBHOOK       飞书自定义机器人 Webhook
+  FEISHU_SECRET        飞书签名校验密钥（可选）
+  WECOM_WEBHOOK        企业微信群机器人 Webhook
+  SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/MAIL_TO  邮件通道（SMTP_PORT 默认 465）
+  MAIL_FROM / MAIL_FROM_NAME  可选，发件地址与显示名
   WATCH_RULES          可选，关注规则，默认 mobile:*;telecom:*
-  DINGTALK_AT_MOBILES  可选，逗号分隔的手机号，推送时 @ 这些人
   SITE_URL             可选，资费专区地址，显示在消息末尾
   NOTIFY_MAX_ITEMS     可选，单条消息最多展示多少条变更，默认 30
 
@@ -30,6 +37,9 @@
 本地预览（不需要 Webhook）：
   python3 scripts/notify_dingtalk.py --dry-run
   python3 scripts/notify_dingtalk.py --dry-run --rules 'telecom:新疆'
+配置自检（真发一条测试消息，验证 Secrets 是否填对）：
+  python3 scripts/notify_dingtalk.py --test
+  NOTIFY_CHANNELS=all python3 scripts/notify_dingtalk.py --test
 """
 import argparse
 import base64
@@ -37,11 +47,16 @@ import hashlib
 import hmac
 import json
 import os
+import re
+import smtplib
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from email.header import Header
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 OP_ALIAS = {
     "mobile": "mobile", "移动": "mobile", "中国移动": "mobile",
@@ -256,6 +271,232 @@ def send(webhook, secret, text, at_mobiles, max_retries=4):
         raise last
 
 
+# ─────────────────── 额外通知通道：飞书 / 企业微信 / 邮件 ───────────────────
+CHANNEL_ALIASES = {
+    "ding": "dingtalk", "钉钉": "dingtalk",
+    "fs": "feishu", "飞书": "feishu", "lark": "feishu",
+    "wxwork": "wecom", "wechatwork": "wecom", "企微": "wecom",
+    "企业微信": "wecom", "微信工作": "wecom",
+    "mail": "email", "邮件": "email", "smtp": "email", "邮箱": "email",
+}
+VALID_CHANNELS = ("dingtalk", "feishu", "wecom", "email")
+
+
+def parse_channels(text):
+    """解析 NOTIFY_CHANNELS：支持逗号/空格分隔、别名、all。空值默认钉钉。"""
+    out = []
+    for part in re.split(r"[,，\s;；]+", text or ""):
+        x = part.strip().lower()
+        if not x:
+            continue
+        if x in ("all", "*", "全部"):
+            return list(VALID_CHANNELS)
+        key = CHANNEL_ALIASES.get(x, x)
+        if key in VALID_CHANNELS and key not in out:
+            out.append(key)
+    return out or ["dingtalk"]
+
+
+def _post_json(url, payload, timeout=20):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url, data=body,
+                                 headers={"Content-Type": "application/json; charset=utf-8"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _trunc_utf8(text, limit):
+    """按字节截断，避免中文被切半个字；企业微信 markdown 上限 4096 字节。"""
+    raw = text.encode("utf-8")
+    if len(raw) <= limit:
+        return text
+    cut = raw[:max(0, limit - 40)]
+    while True:
+        try:
+            return cut.decode("utf-8") + "\n\n…（内容过长已截断，完整数据请访问网站）"
+        except UnicodeDecodeError:
+            cut = cut[:-1]
+
+
+def _md_to_text(md):
+    t = re.sub(r"^#+\s*", "", md, flags=re.M)
+    t = re.sub(r"\*\*(.+?)\*\*", r"\1", t)
+    t = re.sub(r"\[(.+?)\]\((.+?)\)", r"\1（\2）", t)
+    return re.sub(r"^\s*[-*]\s*", "· ", t, flags=re.M).strip()
+
+
+def _md_to_html(md):
+    import html as _html
+    esc = _html.escape(md)
+    lines = []
+    for ln in esc.split("\n"):
+        s = ln.rstrip()
+        if s.startswith("### "):
+            lines.append("<h3>" + s[4:] + "</h3>")
+        elif s.startswith("## "):
+            lines.append("<h2>" + s[3:] + "</h2>")
+        elif s.startswith("# "):
+            lines.append("<h1>" + s[2:] + "</h1>")
+        elif re.match(r"^\s*[-*]\s+", s):
+            lines.append("<li>" + re.sub(r"^\s*[-*]\s+", "", s) + "</li>")
+        elif not s.strip():
+            lines.append("<br>")
+        else:
+            lines.append("<p>" + s + "</p>")
+    body = "\n".join(lines)
+    body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
+    body = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', body)
+    return "<html><body>" + body + "</body></html>"
+
+
+def _retry(label, fn, max_retries=3):
+    last = None
+    for i in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            if i < max_retries:
+                wait = 2 ** (i + 1)
+                print("[%s] 发送失败，%ds 后重试(%d/%d): %s" %
+                      (label, wait, i + 2, max_retries + 1, e), file=sys.stderr)
+                time.sleep(wait)
+    raise last
+
+
+def send_feishu(webhook, secret, title, text):
+    if not webhook:
+        return None
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {"title": {"tag": "plain_text", "content": title[:64]}, "template": "blue"},
+            "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}],
+        },
+    }
+    if secret:
+        # 官方签名：key = timestamp + "\n" + secret，对空串做 HMAC-SHA256 后 Base64
+        ts = str(int(time.time()))
+        string_to_sign = "%s\n%s" % (ts, secret)
+        sign = base64.b64encode(hmac.new(string_to_sign.encode("utf-8"), b"",
+                                         hashlib.sha256).digest()).decode("utf-8")
+        payload["timestamp"] = ts
+        payload["sign"] = sign
+
+    def _do():
+        res = _post_json(webhook, payload)
+        code = res.get("code", res.get("StatusCode", -1))
+        if code != 0:
+            raise RuntimeError("飞书返回 code=%s msg=%s" % (code, res.get("msg")))
+        return res
+
+    _retry("飞书", _do)
+    return True
+
+
+def send_wecom(webhook, title, text):
+    if not webhook:
+        return None
+    content = text if len(text.encode("utf-8")) <= 3800 else _trunc_utf8(_md_to_text(text), 3800)
+
+    def _do():
+        res = _post_json(webhook, {"msgtype": "markdown", "markdown": {"content": content}})
+        if res.get("errcode") != 0:
+            raise RuntimeError("企业微信返回 errcode=%s errmsg=%s" %
+                               (res.get("errcode"), res.get("errmsg")))
+        return res
+
+    _retry("企业微信", _do)
+    return True
+
+
+def send_email(title, text):
+    host = os.environ.get("SMTP_HOST", "").strip()
+    user = os.environ.get("SMTP_USER", "").strip()
+    to = os.environ.get("MAIL_TO", "").strip()
+    if not (host and user and to):
+        return None
+    pwd = os.environ.get("SMTP_PASS", "").strip()
+    port = int(os.environ.get("SMTP_PORT") or "465")
+    sender = os.environ.get("MAIL_FROM", "").strip() or user
+    name = os.environ.get("MAIL_FROM_NAME", "资费监控").strip() or "资费监控"
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = Header(title, "utf-8")
+    msg["From"] = Header("%s <%s>" % (name, sender), "utf-8")
+    msg["To"] = to
+    msg.attach(MIMEText(_md_to_text(text), "plain", "utf-8"))
+    msg.attach(MIMEText(_md_to_html(text), "html", "utf-8"))
+    addrs = [a.strip() for a in to.replace(";", ",").split(",") if a.strip()]
+
+    def _do():
+        if port == 465:
+            srv = smtplib.SMTP_SSL(host, port, timeout=30)
+        else:
+            srv = smtplib.SMTP(host, port, timeout=30)
+            srv.starttls()
+        try:
+            if pwd:
+                srv.login(user, pwd)
+            srv.sendmail(sender, addrs, msg.as_string())
+        finally:
+            try:
+                srv.quit()
+            except Exception:
+                pass
+        return True
+
+    _retry("邮件", _do)
+    return True
+
+
+def send_all(channels, title, text, at_mobiles):
+    """向所有选中且已配置的通道推送；返回 [(通道, 成功?, 说明)]。"""
+    results = []
+    for ch in channels:
+        if ch == "dingtalk":
+            webhook = os.environ.get("DINGTALK_WEBHOOK", "").strip()
+            if not webhook:
+                print("[钉钉] 未配置 DINGTALK_WEBHOOK，跳过")
+                continue
+            try:
+                send(webhook, os.environ.get("DINGTALK_SECRET", "").strip(), text, at_mobiles)
+                results.append(("钉钉", True, "已发送"))
+            except Exception as e:
+                results.append(("钉钉", False, str(e)))
+        elif ch == "feishu":
+            webhook = os.environ.get("FEISHU_WEBHOOK", "").strip()
+            if not webhook:
+                print("[飞书] 未配置 FEISHU_WEBHOOK，跳过")
+                continue
+            try:
+                send_feishu(webhook, os.environ.get("FEISHU_SECRET", "").strip(), title, text)
+                results.append(("飞书", True, "已发送"))
+            except Exception as e:
+                results.append(("飞书", False, str(e)))
+        elif ch == "wecom":
+            webhook = os.environ.get("WECOM_WEBHOOK", "").strip()
+            if not webhook:
+                print("[企业微信] 未配置 WECOM_WEBHOOK，跳过")
+                continue
+            try:
+                send_wecom(webhook, title, text)
+                results.append(("企业微信", True, "已发送"))
+            except Exception as e:
+                results.append(("企业微信", False, str(e)))
+        elif ch == "email":
+            try:
+                if send_email(title, text) is None:
+                    print("[邮件] 未配置 SMTP_HOST/SMTP_USER/MAIL_TO，跳过")
+                    continue
+                results.append(("邮件", True, "已发送"))
+            except Exception as e:
+                results.append(("邮件", False, str(e)))
+    for name, ok, note in results:
+        print("%s %s：%s" % ("✓" if ok else "✗", name, note))
+    return results
+
+
 def rules_from_config(config_path):
     """从网页同步的配置文件读取关注规则。
 
@@ -306,7 +547,7 @@ def load_changes(path):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="资费变动钉钉提醒")
+    ap = argparse.ArgumentParser(description="资费变动多通道提醒（钉钉/飞书/企微/邮件）")
     ap.add_argument("--input", default=os.environ.get("CHANGES_FILE", "data/current_changes.json"))
     ap.add_argument("--rules", default=os.environ.get("WATCH_RULES", "mobile:*;telecom:*"))
     ap.add_argument("--config", default=os.environ.get("WATCH_CONFIG", "data/watch_config.json"),
@@ -322,8 +563,27 @@ def main():
     ap.add_argument("--tag", default=os.environ.get("NOTIFY_TAG", ""),
                     help="消息来源标注，如「移动·片0」")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
+    ap.add_argument("--test", action="store_true", help="发送一条测试消息，验证已配置的通道")
+    ap.add_argument("--channels", default=os.environ.get("NOTIFY_CHANNELS", "dingtalk"),
+                    help="推送通道，逗号分隔 dingtalk/feishu/wecom/email 或 all；默认 dingtalk")
     ap.add_argument("--max-items", type=int, default=int(os.environ.get("NOTIFY_MAX_ITEMS", "30")))
     args = ap.parse_args()
+    channels = parse_channels(args.channels)
+
+    if args.test:
+        title = "✅ 资费监控推送通道测试"
+        md = ("## ✅ 配置成功\n\n"
+              "你的资费变动提醒已成功接入本通道。\n\n"
+              "下次抓取到资费变化后，消息会自动推送到这里。")
+        results = send_all(channels, title, md, [])
+        if not results:
+            print("❌ 没有已配置的通道。请检查 Secrets：DINGTALK_WEBHOOK / FEISHU_WEBHOOK / "
+                  "WECOM_WEBHOOK / SMTP_HOST 等。")
+            return 1
+        ok = [n for n, success, _ in results if success]
+        print("\n测试完成：成功 %d / 已配置 %d（%s）" %
+              (len(ok), len(results), "、".join(ok) if ok else "全部失败"))
+        return 0 if ok else 1
 
     changes = load_changes(args.input)
     if not changes:
@@ -385,12 +645,14 @@ def main():
         print(text)
         _emit(args.emit_pushed, hit)
         return 0
-    webhook = os.environ.get("DINGTALK_WEBHOOK", "")
-    if not webhook:
-        print("未配置 DINGTALK_WEBHOOK，跳过推送（可用 --dry-run 预览）。")
+    title = "资费变动提醒" + (" · %s" % args.tag if args.tag else "")
+    results = send_all(channels, title, text, at)
+    if not results:
+        print("未配置任何通知通道，跳过推送（可用 --dry-run 预览、--test 自检）。")
         return 0
-    send(webhook, os.environ.get("DINGTALK_SECRET", ""), text, at)
-    # 推送成功后累加指纹（保留已推集合，去重跨轮生效）
+    if not any(ok for _, ok, _ in results):
+        raise RuntimeError("所有已配置通道均推送失败，本轮不写入去重状态，下轮会重试")
+    # 任一通道推送成功即累加指纹（保留已推集合，去重跨轮生效）
     seen.update(change_fingerprint(h) for h in hit)
     try:
         os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
@@ -400,7 +662,8 @@ def main():
     except OSError as e:
         print("写入推送指纹失败（不影响推送）：%s" % e, file=sys.stderr)
     _emit(args.emit_pushed, hit)
-    print("钉钉提醒已推送：%d 条命中变更%s。" % (len(hit), ("（%s）" % args.tag) if args.tag else ""))
+    print("提醒已推送（%s）：%d 条命中变更%s。" %
+          ("/".join(n for n, _, _ in results), len(hit), ("（%s）" % args.tag) if args.tag else ""))
     return 0
 
 
