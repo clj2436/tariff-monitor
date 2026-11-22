@@ -21,6 +21,7 @@ import datetime as dt
 import html
 import json
 import os
+import re
 
 OP_NAME = {
     "mobile": "中国移动", "telecom": "中国电信", "unicom": "中国联通", "gb": "中国广电",
@@ -110,6 +111,23 @@ def _pairs(items):
     return [[k, v] for k, v in items if v not in (None, "", "—")]
 
 
+def _split_note(note):
+    """与页面 splitNote() 一致：按编号段落/分号拆成多条，便于逐条展示。"""
+    if not note:
+        return []
+    parts = [p.strip() for p in re.split(
+        r'(?=[（(][一二三四五六七八九十]{1,3}[）)])|(?=(?:^|[；;\s])\d+[\.、．])', note) if p.strip()]
+    if len(parts) <= 1:
+        parts = [p.strip() for p in re.split(r'(?<=[；;])', note) if p.strip()]
+    return parts or [note]
+
+
+def _decorate_para(p):
+    """与页面 decoratePara() 一致：把段首标题加粗。"""
+    m = re.match(r'^([（(]?[一二三四五六七八九十\d]+[）)]?\s*[^：:]{0,14}[：:])(.*)$', p, re.S)
+    return {"lead": m.group(1), "text": m.group(2)} if m else {"lead": "", "text": p}
+
+
 def _full_detail(h):
     """完整资费展示：与页面详情弹窗同结构，所有字段名中文化。"""
     base = _pairs([
@@ -152,10 +170,13 @@ def _full_detail(h):
             continue
         left.append(["补充信息 %d" % (len(left) + 1), _short(v, 600)])
     extra += left
-    service = _detail_value(h, "service") or _short(h.get("note_full"), 2000) or _short(h.get("note"), 400)
+    service = _detail_value(h, "service") or _short(h.get("note"), 400)
+    note_full = _short(h.get("note_full"), 2000)
     return {
         "base": base, "resource": res, "rules": rules, "extra": extra,
-        "service": service, "source": _short(h.get("source"), 200),
+        "service": [_decorate_para(p) for p in _split_note(service)],
+        "note_full": note_full if note_full and note_full != service else "",
+        "source": _short(h.get("source"), 200),
         "date": _short(h.get("date"), 30),
     }
 
@@ -267,7 +288,7 @@ th{background:#f3f4f6;width:92px;white-space:nowrap;color:var(--muted);font-weig
 </div></div>
 <div class="cnt" id="cnt"></div>
 <div id="list"></div>
-<div class="foot">数据由 GitHub Actions 自动抓取 · 实际资费以运营商官网为准</div>
+<div class="foot">资费数据由自动任务定时抓取 · 实际资费以运营商官网为准</div>
 </div>
 <script>
 const ROWS=__DATA__;
@@ -284,7 +305,7 @@ function detail(h){
   const ch=h.changes||[];
   const cmp=ch.length?'<div class="group">本次变更</div><table>'+ch.map(c=>'<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>').join('')+'</table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
   const f=h.full||{};
-  const svc=f.service?'<div class="svc">'+esc(f.service)+'</div>':'<div class="nodiff">暂无其他服务内容说明。</div>';
+  const svc=(f.service&&f.service.length)?f.service.map(p=>'<div class="rule">'+(p.lead?'<b>'+esc(p.lead)+'</b>':'')+esc(p.text)+'</div>').join(''):'<div class="nodiff">暂无其他服务内容说明。</div>';
   return cmp+
     '<div class="group">完整资费展示</div>'+
     '<div class="group">基础信息</div>'+rowsTable(f.base)+
@@ -292,6 +313,7 @@ function detail(h){
     '<div class="group">业务规则</div>'+ruleList(f.rules)+
     (f.extra&&f.extra.length?'<div class="group">补充信息</div>'+ruleList(f.extra):'')+
     '<div class="group">其他服务内容</div>'+svc+
+    (f.note_full?'<div class="group">完整说明</div><div class="svc">'+esc(f.note_full)+'</div>':'')+
     '<div class="nodiff">数据来源：'+esc(f.source)+' · 采集日期 '+esc(f.date)+'</div>';
 }
 function draw(){

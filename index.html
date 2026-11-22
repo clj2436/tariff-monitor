@@ -477,7 +477,7 @@ function saveSel(){
   try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
 const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',priceMin:'',priceMax:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,
-  histQ:'',histKind:'all',histPmin:'',histPmax:'',page:1,size:12,
+  histQ:'',histKind:'all',histPmin:'',histPmax:'',histSort:'desc',page:1,size:12,
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),maxItems:Number(localStorage.getItem('tariff_max_items')||30),
@@ -866,6 +866,7 @@ function renderHistory(){
     '<div class="filters"><select id="hProv"><option value="all">全部省份</option>'+PROVINCES.slice(1).map(p=>'<option'+(state.prov===p?' selected':'')+'>'+p+'</option>').join('')+'</select>'+
     '<div class="search"><input type="text" id="hQ" value="'+state.histQ.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/变更说明" style="width:230px"></div>'+
     '<select id="hKind"><option value="all">全部变更类型</option>'+['新增','修改','下架'].map(k=>'<option'+(state.histKind===k?' selected':'')+'>'+k+'</option>').join('')+'</select>'+
+    '<select id="hSort" title="按变化日期排序"><option value="desc"'+(state.histSort==='desc'?' selected':'')+'>日期：最新在前</option><option value="asc"'+(state.histSort==='asc'?' selected':'')+'>日期：最早在前</option></select>'+
     '<div class="price-range" title="按月费区间筛选（元/月，可只填一端）"><input type="number" id="hPmin" min="0" step="any" placeholder="最低月费" value="'+escHtml(state.histPmin)+'"><span>—</span><input type="number" id="hPmax" min="0" step="any" placeholder="最高月费" value="'+escHtml(state.histPmax)+'"><span class="price-unit">元</span></div>'+
     '<button class="btn'+(state.histMode==='item'?' on':'')+'" id="hModeItem">按资费</button>'+
     '<button class="btn'+(state.histMode==='batch'?' on':'')+'" id="hModeBatch">按批次</button>'+
@@ -894,16 +895,21 @@ function renderHistory(){
       '<div class="tl-change">'+h.name+'</div><div class="tl-change muted">'+changeText(h)+'</div></div></div>';
   };
   const drawItem=(list)=>{
-    const groups={};
+    const groups={},asc=state.histSort==='asc';
     list.forEach(h=>{const k=histKey(h);(groups[k]=groups[k]||[]).push(h);});
-    Object.values(groups).forEach(a=>a.sort((x,y)=>y.date.localeCompare(x.date)));
-    const keys=Object.keys(groups).sort((a,b)=>groups[b][0].date.localeCompare(groups[a][0].date));
+    Object.values(groups).forEach(a=>a.sort((x,y)=>asc?x.date.localeCompare(y.date):y.date.localeCompare(x.date)));
+    const keys=Object.keys(groups).sort((a,b)=>{
+      const da=groups[a][0].date,db=groups[b][0].date;
+      return asc?da.localeCompare(db):db.localeCompare(da);
+    });
     $('hCount').textContent='共 '+keys.length+' 个资费 · '+list.length+' 条改动';
     if(!keys.length){$('timeline').innerHTML='<div class="empty">该省份暂无变更记录。</div>';return;}
     $('timeline').innerHTML=keys.map((k,gi)=>{
-      const arr=groups[k],latest=arr[0],color=CARRIERS[latest.op].color;
+      const arr=groups[k],color=CARRIERS[arr[0].op].color;
+      const byDate=[...arr].sort((x,y)=>y.date.localeCompare(x.date));
+      const latest=byDate[0],first=byDate[byDate.length-1].date;
       const cls=latest.kind==='新增'?'new':latest.kind==='下架'?'off':'mod';
-      const first=arr[arr.length-1].date, span=first===latest.date?latest.date:first+' ~ '+latest.date;
+      const span=first===latest.date?latest.date:first+' ~ '+latest.date;
       return '<div class="hist-group'+((gi===0||state.histExpand)?' open':'')+'" data-k="'+gi+'">'+
         '<div class="hist-head"><span class="hist-arrow">▶</span>'+
         '<div class="hist-main"><div class="hist-name">'+latest.name+' <span class="chg '+cls+'">'+latest.kind+'</span>'+
@@ -918,7 +924,8 @@ function renderHistory(){
   const drawBatch=(list)=>{
     const batches={};
     list.forEach(h=>{(batches[h.date]=batches[h.date]||[]).push(h);});
-    const keys=Object.keys(batches).sort((a,b)=>b.localeCompare(a));
+    const asc=state.histSort==='asc';
+    const keys=Object.keys(batches).sort((a,b)=>asc?a.localeCompare(b):b.localeCompare(a));
     const shown=keys.slice(0,state.histPage*15);
     $('hCount').textContent='共 '+keys.length+' 个批次 · '+list.length+' 条改动';
     if(!keys.length){$('timeline').innerHTML='<div class="empty">该省份暂无变更记录。</div>';$('hMore').innerHTML='';return;}
@@ -942,7 +949,7 @@ function renderHistory(){
         '<span class="hist-count">'+arr.length+' 条</span></div>'+
         '<div class="hist-body">'+body+'</div></div>';
     }).join('');
-    $('hMore').innerHTML=keys.length>shown.length?'<button class="btn" id="hLoadMore">加载更早（还有 '+(keys.length-shown.length)+' 批）</button>':'';
+    $('hMore').innerHTML=keys.length>shown.length?'<button class="btn" id="hLoadMore">加载更多（还有 '+(keys.length-shown.length)+' 批）</button>':'';
     if($('hLoadMore')) $('hLoadMore').addEventListener('click',()=>{state.histPage++;draw();});
     bindGroups();
   };
@@ -964,10 +971,11 @@ function renderHistory(){
   $('hProv').addEventListener('change',()=>{state.histPage=1;draw();});
   $('hQ').addEventListener('input',e=>{state.histQ=e.target.value;state.histPage=1;draw();});
   $('hKind').addEventListener('change',e=>{state.histKind=e.target.value;state.histPage=1;draw();});
+  $('hSort').addEventListener('change',e=>{state.histSort=e.target.value;state.histPage=1;draw();});
   $('hPmin').addEventListener('input',e=>{state.histPmin=e.target.value;state.histPage=1;draw();});
   $('hPmax').addEventListener('input',e=>{state.histPmax=e.target.value;state.histPage=1;draw();});
   $('hReset').addEventListener('click',()=>{
-    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histPage=1;
+    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histSort='desc';state.histPage=1;
     render();
   });
   $('hModeItem').addEventListener('click',()=>{state.histMode='item';state.histPage=1;render();});
