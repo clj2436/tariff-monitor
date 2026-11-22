@@ -294,6 +294,7 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;lin
     <div class="tools">
       <span class="tag-demo" id="dataTag">加载中…</span>
       <span class="sync" id="sync">--</span>
+      <button class="btn" id="offlineBtn" title="显示/隐藏已过下架日期的资费（默认隐藏）">已下线：隐藏</button>
       <button class="btn" id="reloadBtn" title="清除本地缓存并重新拉取全部数据">↻ 刷新数据</button>
       <button class="btn" id="checkBtn">检测资费</button>
       <button class="btn" id="switchBtn">移动 · 江西 ▾</button>
@@ -384,34 +385,41 @@ const VALID_TABS=['overview','national','province','search','history','subscribe
 function selFromHash(){
   try{
     const m=new URLSearchParams(location.hash.replace(/^#/,''));
-    return {op:m.get('op')||'',prov:m.get('prov')||'',tab:m.get('tab')||'',sc:m.get('sc')||''};
+    return {op:m.get('op')||'',prov:m.get('prov')||'',tab:m.get('tab')||'',sc:m.get('sc')||'',so:m.get('so')||''};
   }catch(e){return {};}
 }
 function loadSel(){
   let s={};
   try{s=JSON.parse(localStorage.getItem(SEL_KEY)||'null')||{};}catch(e){}
   const h=selFromHash();
-  const op=h.op||s.op, prov=h.prov||s.prov, tab=h.tab||s.tab, sc=(h.sc!==''?h.sc:s.sc);
+  const op=h.op||s.op, prov=h.prov||s.prov, tab=h.tab||s.tab, sc=(h.sc!==''?h.sc:s.sc), so=(h.so!==''?h.so:s.so);
   return {
     op: CARRIERS[op]?op:'mobile',
     prov: PROVINCES.indexOf(prov)>=0?prov:'江西',
     tab: VALID_TABS.indexOf(tab)>=0?tab:'overview',
-    showCollect: sc==='1'
+    showCollect: sc==='1',
+    showOffline: so==='1'   // 默认不显示已下线资费
   };
 }
 const _sel=loadSel();
 function saveSel(){
-  const sel={op:state.op,prov:state.prov,tab:state.tab,sc:state.showCollect?'1':'0'};
+  const sel={op:state.op,prov:state.prov,tab:state.tab,sc:state.showCollect?'1':'0',so:state.showOffline?'1':'0'};
   try{localStorage.setItem(SEL_KEY,JSON.stringify(sel));}catch(e){}
   try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
-const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
+const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
 const $=id=>document.getElementById(id);
 const money=n=>n===0?'0元':'¥'+n;
+// 北京时间(UTC+8)当天日期 YYYY-MM-DD。已下线判定必须按北京时间，与国内"今天"一致，
+// 不受访问者浏览器时区影响（海外/跨时区访问也不会误判）。
+function TODAY(){
+  const d=new Date(Date.now()+8*3600*1000);
+  return d.toISOString().slice(0,10);
+}
 function changeText(h){
   if(h.kind==='新增') return '新上架 · '+money(h.price)+'/月';
   if(h.kind==='下架') return '已下架 · 原 '+money(h.price)+'/月';
@@ -451,6 +459,7 @@ function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-bt
 /* ---------- 数据查询 ---------- */
 function currentRows(){
   let rows=DATA.filter(d=>d.op===state.op);
+  if(!state.showOffline) rows=rows.filter(d=>!d.offline);
   if(state.tab==='national') rows=rows.filter(d=>d.scope==='全国');
   if(state.tab==='province') rows=rows.filter(d=>d.scope==='省份'&&d.province===state.prov);
   if(state.type!=='all') rows=rows.filter(d=>d.type===state.type);
@@ -512,7 +521,7 @@ function cardsHTML(rows){
   return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>上线日期</th><th>下架日期</th>'+(state.showCollect?'<th>采集日期</th>':'')+'<th>收藏</th><th>详情</th></tr></thead><tbody>'+
     pageRows.map(d=>'<tr>'+
       '<td>'+opBadge(d.op)+'</td>'+
-      '<td class="name">'+d.name+(d.code?'<div class="namecode">'+escHtml(d.code)+'</div>':'')+'</td>'+
+      '<td class="name">'+d.name+(d.offline?' <span class="pill" style="background:#fee2e2;color:#991b1b">已下线</span>':'')+(d.code?'<div class="namecode">'+escHtml(d.code)+'</div>':'')+'</td>'+
       '<td><span class="type-tag">'+d.type+'</span></td>'+
       '<td><span class="owner-tag '+(d.owner==='个人'?'person':'biz')+'">'+d.owner+'</span></td>'+
       '<td class="price'+(d.price===0?' zero':'')+'">'+money(d.price)+'</td>'+
@@ -579,7 +588,9 @@ function exportCSV(){
 
 /* ---------- 各页面 ---------- */
 function renderOverview(){
-  const opData=DATA.filter(d=>d.op===state.op);
+  const allOpData=DATA.filter(d=>d.op===state.op);
+  const offlineCount=allOpData.filter(d=>d.offline).length;
+  const opData=state.showOffline?allOpData:allOpData.filter(d=>!d.offline);
   const nat=opData.filter(d=>d.scope==='全国');
   const pv=opData.filter(d=>d.scope==='省份');
   const prov=opData.filter(d=>d.scope==='省份'&&d.province===state.prov);
@@ -589,7 +600,7 @@ function renderOverview(){
   const provChanges=HISTORY.filter(h=>h.op===state.op&&h.province===state.prov&&h.date>=since).length;
   const max=Math.max(1,...cats.map(c=>c[1]));
   $('view').innerHTML=
-    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览</p>'+
+    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(!state.showOffline&&offlineCount?' · <span style="color:var(--warn)">已隐藏 '+offlineCount+' 条已下线资费（点顶部「已下线」开关可查看）</span>':'')+'</p>'+
     '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
     '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
     '<div class="kpi-grid">'+
@@ -681,7 +692,7 @@ function renderFieldSearch(){
   if(!sf.scopes||!sf.scopes.length) sf.scopes=[{op:'all',prov:'all'}];
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">字段检索 <span class="pill">按公示字段精确查找</span></h3>'+
     '<span class="card-desc">自定义检索范围（运营商 × 省份，可加多行）+ 字段 + 关键词，检索公示专区里的任意字段</span></div>'+
-    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。完全相同的范围会自动去重（新增时自动避开已存在的范围）；仅互相包含的范围（如「全部运营商 × 四川」与「中国移动 × 四川」）允许重复添加。</div>'+
+    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。完全相同的范围会自动去重（新增时自动避开已存在的范围）；仅互相包含的范围（如「全部运营商 × 四川」与「中国移动 × 四川」）允许重复添加。<br>当前已下线资费：<b>'+(state.showOffline?'显示':'隐藏（默认，按官网下架日期 < 今天判定）')+'</b>，可用顶部「已下线」开关切换。</div>'+
     '<div class="scope-list" id="scopeList"></div>'+
     '<div style="padding:10px 18px 0"><button class="btn" id="scopeAdd">＋ 添加范围条件</button></div>'+
     '<div class="adv-grid">'+
@@ -717,6 +728,7 @@ function renderFieldSearch(){
   };
   const draw=()=>{
     let rows=DATA.filter(d=>inScopes(d,sf.scopes));
+    if(!state.showOffline) rows=rows.filter(d=>!d.offline); // 字段检索同样默认隐藏已下线资费
     const kw=sf.kw.trim().toLowerCase();
     if(sf.mode==='empty') rows=rows.filter(d=>!String(searchFieldText(d,sf.field)||'').trim());
     else if(kw){
@@ -1180,6 +1192,17 @@ $('switchBtn').addEventListener('click',openSwitchModal);
 $('provSearch2').addEventListener('input',e=>renderProvGrid(e.target.value,'provGrid2','provSearch2'));
 $('switchDone').addEventListener('click',()=>{saveSel();updateSwitchLabel();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name+' · '+state.prov);});
 $('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.setItem('tariff_dark',state.dark?'1':'0');applyTheme();});
+// 全局"显示已下线"开关：一处控制列表/总览统计/字段检索；默认隐藏已过下架日期的资费。
+function updateOfflineBtn(){
+  const b=$('offlineBtn');if(!b)return;
+  b.textContent='已下线：'+(state.showOffline?'显示':'隐藏');
+  b.classList.toggle('on',state.showOffline);
+  b.title=state.showOffline?'当前显示已下线资费，点击隐藏':'当前隐藏已下线资费，点击显示（按官网下架日期 < 今天判定）';
+}
+$('offlineBtn').addEventListener('click',()=>{
+  state.showOffline=!state.showOffline;saveSel();updateOfflineBtn();render();
+  toast(state.showOffline?'已显示已下线资费':'已隐藏已下线资费');
+});
 $('reloadBtn').addEventListener('click',async()=>{
   const btn=$('reloadBtn');const old=btn.textContent;btn.textContent='刷新中…';btn.disabled=true;
   await clearCache();opState={};failedOps.clear();
@@ -1236,6 +1259,12 @@ function adaptRemote(raw){
       scope, province: prov,
       date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '2026-01-01'
     };
+    // 统一判定"已下线"：有合法下架日期且早于今天。所有运营商统一口径，
+    // 用于列表/总览统计/字段检索的默认隐藏（联通等源会保留大量已过期的历史资费）。
+    const offRaw=extra.offDate||extra.offlineDate||'';
+    const off=/^\d{4}-\d{2}-\d{2}$/.test(String(offRaw))?String(offRaw).slice(0,10):'';
+    item.offDate=off;
+    item.offline=!!(off && off < TODAY());
     // 预计算全字段搜索串：一次性拼接，避免每次输入时对上千条逐条 Object.values
     item._hay=[item.name,item.code,item.type,item.owner,item.source,CARRIERS[op].name,prov,
       item.data,item.voice,item.broadband,item.price,item.note,item.date,
@@ -1486,7 +1515,7 @@ async function loadData(){
 
 /* ---------- 启动 ---------- */
 (async function init(){
-  applyTheme();updateSwitchLabel();renderNav();render();
+  applyTheme();updateSwitchLabel();updateOfflineBtn();renderNav();render();
   saveSel(); // 首次进入即固化到地址栏，localStorage 被清时刷新仍可恢复
   await loadData();
 })();
