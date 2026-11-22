@@ -553,14 +553,21 @@ def main():
             print("[基线] 本源首次运行，只建基线不记变化，避免整批误报为新上架")
     else:
         changes = diff_rows(prev_rows, rows)
-        # 新增省份首次纳入：数据照常落盘，但这些省份本轮的变化不计入 diff，
-        # 避免 6000+ 条一次性判为「新上架」推送刷屏；下一轮起正常检测。
+        # 新增省份首次纳入：数据照常落盘，但该省「首轮」新增不计入 diff，
+        # 避免 6000+ 条一次性判为「新上架」推送刷屏。
+        # 关键：只剔除"上一轮该省完全没有数据"的新增——一旦该省已有存量数据，
+        # 说明基线已建立，之后每轮的新增都是真实新上架，必须正常推送。
+        # （旧实现按固定名单无条件剔除，导致名单内省份的新增被永久屏蔽。）
         baseline_set = {s.strip() for s in args.baseline_provinces.split(",") if s.strip()}
         if baseline_set:
-            before = len(changes)
-            changes = [c for c in changes if not (c.get("kind") == "新增" and c.get("province") in baseline_set)]
-            print("[基线省份] %s：剔除 %d 条首轮新增（数据已落盘，不计变化）"
-                  % ("、".join(sorted(baseline_set)), before - len(changes)))
+            prev_provinces = {d.get("province") or "全国" for d in prev_rows}
+            first_time = baseline_set - prev_provinces  # 本轮才首次有数据的省份
+            if first_time:
+                before = len(changes)
+                changes = [c for c in changes
+                           if not (c.get("kind") == "新增" and c.get("province") in first_time)]
+                print("[基线省份] %s：剔除 %d 条首轮新增（数据已落盘，不计变化；后续新增正常推送）"
+                      % ("、".join(sorted(first_time)), before - len(changes)))
     hist = (prev_hist + changes)[-150:]
 
     ops_present = sorted({d.get("op") for d in rows if d.get("op")})
