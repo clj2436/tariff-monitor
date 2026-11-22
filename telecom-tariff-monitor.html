@@ -441,7 +441,7 @@ function loadSel(){
     op: CARRIERS[op]?op:'mobile',
     prov: PROVINCES.indexOf(prov)>=0?prov:'江西',
     tab: VALID_TABS.indexOf(tab)>=0?tab:'overview',
-    showCollect: sc!=='0'
+    showCollect: sc==='1'
   };
 }
 const _sel=loadSel();
