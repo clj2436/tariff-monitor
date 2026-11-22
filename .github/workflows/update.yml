@@ -6,19 +6,42 @@ on:
     - cron: '47 0,12 * * *'   # UTC 00:47 / 12:47 = 北京 08:47 / 20:47
   workflow_dispatch:          # 手动触发
 
-# 最小权限：只写仓库内容
 permissions:
   contents: write
 
-# 防止并发运行导致数据竞争
 concurrency:
   group: tariff-update
   cancel-in-progress: false
 
+# ── 架构：并行分片抓取 + 合并 ──
+# 旧的串行单 job 要抓 4 家 × 31 省，联通一家就要 ~100 分钟，
+# 总时长必然撞上 Actions 上限被强杀，导致数据一直不更新。
+# 现在把每家运营商拆成独立 job 并行跑，联通再拆 2 片（每片 ~50 分钟），
+# 各自输出 raw JSON artifact；merge job 汇总后统一 diff/提交/推送。
+# 任一家失败不影响其他家：merge 时缺失板块自动保留上一轮旧数据。
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 180   # 外层上限；脚本自身 100 分钟护栏会先触发，正常提交而非被强杀
+    timeout-minutes: 100          # 单片上限；联通 16 省 ~50 分钟，留足余量
+    strategy:
+      fail-fast: false            # 一片失败不让其他片一起挂
+      matrix:
+        include:
+          - carrier: mobile
+            shard_idx: 0
+            shard_total: 1
+          - carrier: telecom
+            shard_idx: 0
+            shard_total: 1
+          - carrier: gb
+            shard_idx: 0
+            shard_total: 1
+          - carrier: unicom
+            shard_idx: 0
+            shard_total: 2
+          - carrier: unicom
+            shard_idx: 1
+            shard_total: 2
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -34,18 +57,56 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 抓取并构建资费数据
+      - name: 抓取 ${{ matrix.carrier }} (片 ${{ matrix.shard_idx }}/${{ matrix.shard_total }})
         env:
-          # 可在仓库 Settings → Secrets and variables → Actions → Variables 中调节
           TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
-          # 联通每省抓取预算(秒)：32 省 × 120s ≈ 64 分钟是上一轮超时的主因，
-          # 覆盖率主要靠费用分段扫描保证，采样循环 20s 足够收敛。
-          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '20' }}
-          # 全局护栏(分钟)：到点跳过未抓板块、保留旧数据，确保 job 在 120 分钟上限前结束。
-          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '100' }}
-        # TRACK_PROVINCES 由脚本直接读取（支持中文省名/拼音），留空则全量抓取
-        run: python3 scripts/build_data.py --out data
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '90' }}
+          SHARD_IDX: ${{ matrix.shard_idx }}
+          SHARD_TOTAL: ${{ matrix.shard_total }}
+        run: |
+          mkdir -p raw
+          python3 scripts/build_data.py \
+            --carriers ${{ matrix.carrier }} \
+            --raw-out raw/${{ matrix.carrier }}-${{ matrix.shard_idx }}.json
+          python3 -c "import json,sys; n=len(json.load(open('raw/${{ matrix.carrier }}-${{ matrix.shard_idx }}.json'))); print('片内条目:',n); sys.exit(0 if n>0 else 1)"
+
+      - name: 上传分片
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-${{ matrix.carrier }}-${{ matrix.shard_idx }}
+          path: raw/${{ matrix.carrier }}-${{ matrix.shard_idx }}.json
+          retention-days: 1
+          if-no-files-found: error
+
+  merge:
+    needs: scrape
+    if: always()   # 即使个别分片失败也合并：缺失运营商由板块级合并保留旧数据
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 下载所有分片
+        uses: actions/download-artifact@v4
+        with:
+          pattern: raw-*
+          path: raw
+          merge-multiple: true
+
+      - name: 合并 + 差异对比
+        run: python3 scripts/build_data.py --merge-from raw --out data
 
       - name: 检查数据完整性
         run: |
@@ -59,17 +120,12 @@ jobs:
           if meta.get('count', 0) < 10 or len(items) < 10:
               print('数据量异常，拒绝提交。count=%s items=%s' % (meta.get('count'), len(items)))
               sys.exit(1)
-          print('数据校验通过：%d 条资费，%d 条变更' % (len(items), meta.get('changes', 0)))
+          print('数据校验通过：%d 条资费，%d 条变更；分布 %s' % (
+              len(items), meta.get('changes', 0), meta.get('by_op')))
           PY
 
-      # 钉钉提醒：在仓库 Settings → Secrets and variables → Actions 中配置
-      #   Secrets:   DINGTALK_WEBHOOK（必填，群机器人地址）
-      #              DINGTALK_SECRET（可选，机器人安全设置为「加签」时填）
-      #   Variables: WATCH_RULES（可选，默认移动+电信全部省份）
-      #              格式 mobile:江西|北京;telecom:新疆|湖南
-      #              DINGTALK_AT_MOBILES（可选，逗号分隔手机号，推送时 @）
-      #              SITE_URL（可选，资费专区地址，显示在消息末尾）
-      # 未配置 Webhook 或无命中变更时自动跳过，不影响数据提交。
+      # 钉钉提醒：Secrets: DINGTALK_WEBHOOK / DINGTALK_SECRET；
+      # Variables: WATCH_RULES、DINGTALK_AT_MOBILES、SITE_URL（也可由网页订阅页同步）
       - name: 推送钉钉变动提醒
         continue-on-error: true
         env:

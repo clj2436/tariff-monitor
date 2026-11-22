@@ -299,10 +299,17 @@ def do_common(op, sections):
         jobs = [(sc, v[0], v[1], v[2]) for sc, v in alljobs.items()]
 
     wanted = set(sections) if sections else None
+    # 省份分片：SHARD_IDX/SHARD_TOTAL 把一个运营商的省份拆到多个并行 job,
+    # 每片只抓自己那份,最后 merge 阶段汇总。联通 32 省单 job 要 ~100 分钟,
+    # 拆 2 片后每片 ~50 分钟,稳稳跑完。按 job 序号取模,分布均匀。
+    shard_idx = int(os.getenv("SHARD_IDX") or "0")
+    shard_total = max(1, int(os.getenv("SHARD_TOTAL") or "1"))
     planned = 0
-    for job in jobs:
+    for ji, job in enumerate(jobs):
         sc = job[0]
         if wanted and sc not in wanted:
+            continue
+        if shard_total > 1 and (ji % shard_total) != shard_idx:
             continue
         if _expired():
             print(f"[{op}] 全局时间预算耗尽，跳过 {sc} 及其后板块（保留旧数据）")
@@ -405,6 +412,10 @@ def main():
     ap.add_argument("--carriers", default="mobile,unicom,telecom,gb")
     ap.add_argument("--sections", default="")
     ap.add_argument("--rebuild", action="store_true")
+    # 并行分片模式：--raw-out 只抓指定运营商、写出原始 rows 后即返回（不 diff）；
+    # --merge-from 读取各分片 raw json，统一生成 id、合并、diff、输出 data/。
+    ap.add_argument("--raw-out", default="")
+    ap.add_argument("--merge-from", default="")
     args = ap.parse_args()
 
     carriers = [c.strip() for c in args.carriers.split(",") if c.strip()]
@@ -425,9 +436,29 @@ def main():
         _setup_deadline(budget_min * 60)
         print(f"[全局] 时间预算 {budget_min} 分钟，到点跳过剩余板块（保留旧数据）")
 
-    rows = []
-    for op in carriers:
-        rows += do_mobile(sections) if op == "mobile" else do_common(op, sections)
+    # ── 分片抓取模式：只抓本 job 负责的运营商，写出原始 rows 后立即返回 ──
+    # 每个运营商在独立 Actions job 里并行跑，单家超时/失败不影响其他家。
+    if args.raw_out:
+        rows = []
+        for op in carriers:
+            rows += do_mobile(sections) if op == "mobile" else do_common(op, sections)
+        save_json(args.raw_out, rows)
+        print(f"[分片] {','.join(carriers)} 共 {len(rows)} 条 -> {args.raw_out}")
+        return
+
+    # ── 合并模式：读取各运营商分片，统一生成 id / 合并 / diff ──
+    if args.merge_from:
+        rows = []
+        for fn in sorted(os.listdir(args.merge_from)):
+            if not fn.endswith(".json"):
+                continue
+            part = load_json(os.path.join(args.merge_from, fn)) or []
+            print(f"[合并] 读取 {fn}: {len(part)} 条")
+            rows += part
+    else:
+        rows = []
+        for op in carriers:
+            rows += do_mobile(sections) if op == "mobile" else do_common(op, sections)
 
     # 稳定 id
     for i, d in enumerate(rows):
@@ -454,9 +485,10 @@ def main():
     changes = [] if args.rebuild else diff_rows(prev_rows, rows)
     hist = (prev_hist + changes)[-150:]
 
+    ops_present = sorted({d.get("op") for d in rows if d.get("op")})
     meta = {
         "timestamp": NOW, "date": TODAY, "count": len(rows),
-        "by_op": {op: sum(1 for d in rows if d["op"] == op) for op in carriers},
+        "by_op": {op: sum(1 for d in rows if d["op"] == op) for op in ops_present},
         "by_province": {}, "changes": len(changes),
     }
     for d in rows:
