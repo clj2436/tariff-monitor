@@ -407,11 +407,26 @@ const money=n=>n===0?'0元':'¥'+n;
 function changeText(h){
   if(h.kind==='新增') return '新上架 · '+money(h.price)+'/月';
   if(h.kind==='下架') return '已下架 · 原 '+money(h.price)+'/月';
-  const o=h.old||{},parts=[];
-  const f=[['price','月费',v=>money(Number(v)||0)],['data','通用流量',v=>v||'—'],['voice','语音',v=>v||'—'],['broadband','宽带',v=>v||'—']];
-  f.forEach(([k,label,fmt])=>{
-    const a=o[k],b=h[k];
-    if(a!==undefined&&b!==undefined&&String(a)!==String(b)) parts.push(label+' '+fmt(a)+' → '+fmt(b));
+  const o=h.old||{},keys=Object.keys(o);
+  if(!keys.length) return '资费详情有调整，详见运营商官网。';
+  const L={price:'月费',data:'通用流量',voice:'语音',broadband:'宽带',note:'资费说明',note_full:'完整说明',
+    scope:'适用范围',region:'适用地区',channel:'销售渠道',onDate:'上架日期',offDate:'下架日期',
+    validPeriod:'有效期',inNetReq:'在网要求',unsubscribe:'退订方式',responsibility:'违约责任',
+    sms:'短信',orient:'定向流量',regionData:'省内流量',iptv:'IPTV',rights:'权益',
+    service:'其他服务内容',extraFees:'额外费用',otherNotes:'其他说明'};
+  const val=(obj,k)=>k.indexOf('details.')===0?(obj.details||{})[k.slice(8)]:obj[k];
+  const short=v=>{const s=String(v==null?'':v).replace(/\s+/g,' ');return s.length<=44?s:s.slice(0,44)+'…';};
+  // note/note_full 是其他详情字段的汇总文本，已有具体字段变化时不重复展示
+  const specific=keys.some(k=>k.indexOf('details.')===0||['price','data','voice','broadband'].indexOf(k)>=0);
+  const parts=[];
+  keys.forEach(k=>{
+    if((k==='note'||k==='note_full')&&specific) return;
+    const a=o[k],b=val(h,k);
+    if(a==null&&b==null) return;
+    if(String(a==null?'':a)===String(b==null?'':b)) return;
+    const label=L[k]||L[k.split('.').pop()]||k;
+    const fmt=k==='price'?(v=>money(Number(v)||0)):(v=>short(v==null?'—':v));
+    parts.push(label+' '+fmt(a)+' → '+fmt(b));
   });
   return parts.length?parts.join(' · '):'资费详情有调整，详见运营商官网。';
 }
@@ -1018,6 +1033,7 @@ function adaptHistory(raw){
     date: (h.date||'').slice(0,10) || '2026-01-01',
     price: Number(h.price)||0,
     data: h.data, voice: h.voice, broadband: h.broadband,
+    details: h.details && typeof h.details === 'object' ? h.details : null,
     old: h.old && typeof h.old === 'object' ? h.old : null
   })).sort((a,b)=>b.date.localeCompare(a.date));
 }

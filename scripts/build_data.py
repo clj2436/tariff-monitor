@@ -366,6 +366,36 @@ def stable_key(d):
     return code if code else f"{d['op']}|{d['name']}|{d['owner']}|{d['province']}"
 
 
+# 参与变化检测的基础字段。技术字段（id/code/source/date/op/province/type/owner）
+# 不参与——它们要么恒定，要么本就由 diff 流程生成，比较无意义。
+DIFF_BASE_FIELDS = ("price", "data", "voice", "broadband", "note", "note_full")
+
+
+def _diff_norm(v):
+    """差异检测专用归一化：在 norm() 之上忽略所有空白（含全角空格），
+    避免运营商接口换行/排版抖动被误判成资费变更而假推送。"""
+    return re.sub(r"\s+", "", norm(v)).replace("\u3000", "")
+
+
+def changed_fields(new, old, detail_fields):
+    """返回 {字段键: 旧值}，覆盖全部业务字段；无实质变化返回空 dict。
+
+    - 基础字段直接比较；
+    - details 里的键以 'details.<key>' 标记，便于推送端从详情字典取新值；
+    - 已映射的公示字段 + 官方新增的兜底字段全部纳入；
+    - 比较前统一经 _diff_norm() 归一化，消除空白/换行等抓取格式抖动。
+    """
+    diff = {}
+    for f in DIFF_BASE_FIELDS:
+        if _diff_norm(new.get(f)) != _diff_norm(old.get(f)):
+            diff[f] = old.get(f)
+    nd, od = new.get("details") or {}, old.get("details") or {}
+    for f in dict.fromkeys(list(detail_fields) + list(nd) + list(od)):
+        if _diff_norm(nd.get(f)) != _diff_norm(od.get(f)):
+            diff["details." + f] = od.get(f)
+    return diff
+
+
 def diff_rows(prev, cur):
     pmap, cmap = {}, {}
     for d in prev:
@@ -373,7 +403,8 @@ def diff_rows(prev, cur):
     for d in cur:
         cmap.setdefault(stable_key(d), []).append(d)
     changes = []
-    fields = ("price", "data", "voice", "broadband", "note")
+    # 全场景检测：基础字段 + 完整说明 + 全部公示详情字段（含上下架日期/有效期等）
+    detail_fields = [k for k, _ in DETAIL_KEYS]
     for k, clist in cmap.items():
         plist = pmap.get(k)
         if not plist:
@@ -381,9 +412,9 @@ def diff_rows(prev, cur):
             continue
         for i, new in enumerate(clist):
             old = plist[min(i, len(plist) - 1)]
-            if any(norm(new.get(f)) != norm(old.get(f)) for f in fields):
-                changes.append({**new, "kind": "修改", "date": TODAY,
-                                "old": {f: old.get(f) for f in fields}})
+            changed = changed_fields(new, old, detail_fields)
+            if changed:
+                changes.append({**new, "kind": "修改", "date": TODAY, "old": changed})
     for k, plist in pmap.items():
         if k not in cmap:
             changes += [{**d, "kind": "下架", "date": TODAY} for d in plist]

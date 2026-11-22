@@ -45,7 +45,17 @@ OP_ALIAS = {
     "*": "*", "all": "*", "全部": "*",
 }
 OP_NAME = {"mobile": "中国移动", "telecom": "中国电信", "unicom": "中国联通", "gb": "中国广电"}
-FIELDS = [("price", "月费"), ("data", "通用流量"), ("voice", "语音"), ("broadband", "宽带")]
+# 变化字段中文名，覆盖基础字段与全部公示详情字段（含上下架日期）
+FIELD_LABELS = {
+    "price": "月费", "data": "通用流量", "voice": "语音", "broadband": "宽带",
+    "note": "资费说明", "note_full": "完整说明",
+    "scope": "适用范围", "region": "适用地区", "channel": "销售渠道",
+    "onDate": "上架日期", "offDate": "下架日期", "validPeriod": "有效期",
+    "inNetReq": "在网要求", "unsubscribe": "退订方式", "responsibility": "违约责任",
+    "sms": "短信", "orient": "定向流量", "regionData": "省内流量",
+    "iptv": "IPTV", "rights": "权益", "service": "其他服务内容",
+    "extraFees": "额外费用", "otherNotes": "其他说明",
+}
 
 
 def fmt_money(v):
@@ -86,6 +96,19 @@ def matched(change, rules):
     return False
 
 
+def _field_value(obj, key):
+    """按字段键取值；'details.xxx' 从详情字典取，兼容旧版顶层字段。"""
+    if key.startswith("details."):
+        return (obj.get("details") or {}).get(key.split(".", 1)[1])
+    return obj.get(key)
+
+
+def _short(v, limit=44):
+    s = "" if v is None else str(v)
+    s = " ".join(s.split())
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
 def describe(change):
     kind = change.get("kind")
     if kind == "新增":
@@ -93,12 +116,20 @@ def describe(change):
     if kind == "下架":
         return "已下架 · 原 %s/月" % fmt_money(change.get("price"))
     old = change.get("old") or {}
+    if not old:
+        return "资费详情有调整，详见运营商官网"
+    # note/note_full 是其他详情字段的汇总文本：若已有具体字段变化，省略汇总避免重复刷屏
+    has_specific = any(k.startswith("details.") or k in ("price", "data", "voice", "broadband")
+                       for k in old)
     parts = []
-    for key, label in FIELDS:
-        before, after = old.get(key), change.get(key)
-        if before is None or after is None or str(before) == str(after):
+    for key, before in old.items():
+        if key in ("note", "note_full") and has_specific:
             continue
-        show = fmt_money if key == "price" else (lambda v: v or "—")
+        label = FIELD_LABELS.get(key) or FIELD_LABELS.get(key.split(".", 1)[-1]) or key
+        after = _field_value(change, key)
+        if str(before or "") == str(after or ""):
+            continue
+        show = fmt_money if key == "price" else _short
         parts.append("%s %s → %s" % (label, show(before), show(after)))
     return " · ".join(parts) if parts else "资费详情有调整，详见运营商官网"
 
