@@ -422,7 +422,24 @@ Object.keys(CARRIERS).forEach(op=>{
 HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
 
 /* ---------- 状态 ---------- */
-const state={tab:'overview',op:'mobile',prov:'江西',type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
+/* 记住用户选择的运营商/省份/页签，刷新后恢复（校验合法性，避免脏数据） */
+const SEL_KEY='tariff_selection_v1';
+const VALID_TABS=['overview','national','province','search','history','subscribe','about'];
+function loadSel(){
+  try{
+    const s=JSON.parse(localStorage.getItem(SEL_KEY)||'null')||{};
+    return {
+      op: CARRIERS[s.op]?s.op:'mobile',
+      prov: PROVINCES.indexOf(s.prov)>=0?s.prov:'江西',
+      tab: VALID_TABS.indexOf(s.tab)>=0?s.tab:'overview'
+    };
+  }catch(e){return {op:'mobile',prov:'江西',tab:'overview'};}
+}
+const _sel=loadSel();
+function saveSel(){
+  try{localStorage.setItem(SEL_KEY,JSON.stringify({op:state.op,prov:state.prov,tab:state.tab}));}catch(e){}
+}
+const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
   search:{op:'all',field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
@@ -462,7 +479,7 @@ function applyTheme(){document.body.classList.toggle('dark',state.dark);$('theme
 /* ---------- 导航 ---------- */
 const TABS=[['overview','数据总览'],['national','全国资费'],['province','省份资费'],['search','字段检索'],['history','变化历史'],['subscribe','订阅推送'],['about','关于本页']];
 function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-btn'+(state.tab===k?' on':'')+'" data-tab="'+k+'">'+l+'</button>').join('');
-  $('nav').querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;state.page=1;renderNav();render();}));}
+  $('nav').querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;state.page=1;saveSel();renderNav();render();}));}
 
 /* ---------- 数据查询 ---------- */
 function currentRows(){
@@ -617,7 +634,7 @@ function renderOverview(){
     '</div></div></div></div>';
   $('kpiSwitch').addEventListener('click',openSwitchModal);
   $('view').querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>{
-    state.prov=el.dataset.pick;state.page=1;updateSwitchLabel();render();toast('已切换到'+state.prov);
+    state.prov=el.dataset.pick;state.page=1;saveSel();updateSwitchLabel();render();toast('已切换到'+state.prov);
   }));
 }
 function renderListPage(withProv){
@@ -977,7 +994,7 @@ function renderCarrierOpts(){
   $('carrierOpts').innerHTML=Object.keys(CARRIERS).map(k=>'<button class="opt'+(state.op===k?' on':'')+'" data-op="'+k+'" style="--oc:'+CARRIERS[k].color+'">'+
     '<span class="opt-ico">'+CARRIERS[k].short.charAt(0)+'</span><span class="opt-main"><div class="opt-name">'+CARRIERS[k].name+'</div><div class="opt-desc">'+CARRIERS[k].desc+'</div></span>'+(state.op===k?'<span>✓</span>':'')+'</button>').join('');
   $('carrierOpts').querySelectorAll('[data-op]').forEach(b=>b.addEventListener('click',()=>{
-    state.op=b.dataset.op;state.page=1;
+    state.op=b.dataset.op;state.page=1;saveSel();
     renderCarrierOpts();updateSwitchLabel();render();toast('已切换到'+CARRIERS[state.op].name);
   }));
 }
@@ -986,7 +1003,7 @@ function renderProvGrid(q='',targetId='provGrid',inputId='provSearch'){
   const el=$(targetId);if(!el)return;
   el.innerHTML=list.map(p=>'<button class="prov-btn'+(state.prov===p?' on':'')+'" data-pv="'+p+'">'+p+'</button>').join('')||'<div class="empty" style="grid-column:1/-1">未找到省份</div>';
   el.querySelectorAll('[data-pv]').forEach(b=>b.addEventListener('click',()=>{
-    state.prov=b.dataset.pv;state.page=1;
+    state.prov=b.dataset.pv;state.page=1;saveSel();
     const inp=$(inputId);renderProvGrid(inp?inp.value:'',targetId,inputId);
     updateSwitchLabel();render();
     if(targetId==='provGrid'){$('provinceModal').classList.add('hidden');toast('已切换到'+state.prov);}
@@ -1100,7 +1117,7 @@ $('dFav').addEventListener('click',()=>{
 /* ---------- 事件 ---------- */
 $('switchBtn').addEventListener('click',openSwitchModal);
 $('provSearch2').addEventListener('input',e=>renderProvGrid(e.target.value,'provGrid2','provSearch2'));
-$('switchDone').addEventListener('click',()=>{updateSwitchLabel();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name+' · '+state.prov);});
+$('switchDone').addEventListener('click',()=>{saveSel();updateSwitchLabel();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name+' · '+state.prov);});
 $('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.setItem('tariff_dark',state.dark?'1':'0');applyTheme();});
 $('checkBtn').addEventListener('click',async()=>{
   const real=$('dataTag').textContent==='真实数据';
