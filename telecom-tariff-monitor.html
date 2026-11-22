@@ -485,16 +485,40 @@ function currentRows(){
     return d._hay.includes(q);
   });
   rows.sort((a,b)=>{
-    let v=0;
-    if(state.sort==='price') v=a.price-b.price;
-    if(state.sort==='new') v=b.date.localeCompare(a.date);
-    return state.asc?v:-v;
+    if(state.sort==='price') return state.asc ? a.price-b.price : b.price-a.price;
+    // 时间排序：上架 / 下架 / 收录（采集）时间。空日期一律沉底，不受升降序影响。
+    const ka=sortDateVal(a,state.sort), kb=sortDateVal(b,state.sort);
+    if(!ka||!kb){
+      if(ka===kb) return 0;
+      return ka ? -1 : 1;
+    }
+    const cmp=kb.localeCompare(ka);   // 默认最新在前
+    return state.asc ? cmp : -cmp;
   });
   return rows;
+}
+// 取用于排序的规范日期 YYYY-MM-DD；取不到返回空串（沉底）。
+// kind: onDate 上架时间 / offDate 下架时间 / collected 收录(采集)时间
+function sortDateVal(d,kind){
+  if(kind==='collected') return normDate(d.date);
+  const e=d.extra||{};
+  let raw='';
+  if(kind==='onDate') raw=e.onDate||e.onlineDate||e.saleDate||e['上架日期']||'';
+  else if(kind==='offDate') raw=e.offDate||e.offlineDate||e['下架日期']||'';
+  return normDate(raw);
+}
+function normDate(raw){
+  const s=String(raw==null?'':raw).trim();
+  const m=s.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  return m ? m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2) : '';
 }
 function onDateOf(d){
   const e=d.extra||{};
   return e.onDate||e.onlineDate||e.saleDate||'—';
+}
+function offDateOf(d){
+  const e=d.extra||{};
+  return e.offDate||e.offlineDate||'—';
 }
 function cardsHTML(rows){
   const total=Math.max(1,Math.ceil(rows.length/state.size));
@@ -535,7 +559,7 @@ function filtersHTML(withProv){
     (withProv?'<button class="btn btn-prov" id="openProv">省份：'+state.prov+' ▾</button>':'')+
     '<select id="fType"><option value="all">全部类型</option>'+TYPES.map(t=>'<option'+(state.type===t?' selected':'')+'>'+t+'</option>').join('')+'</select>'+
     '<select id="fOwner"><option value="all">全部归属</option>'+OWNERS.map(t=>'<option'+(state.owner===t?' selected':'')+'>'+t+'</option>').join('')+'</select>'+
-    '<select id="fSort"><option value="price"'+(state.sort==='price'?' selected':'')+'>按价格</option><option value="new"'+(state.sort==='new'?' selected':'')+'>最新上架</option></select>'+
+    '<select id="fSort"><option value="price"'+(state.sort==='price'?' selected':'')+'>按价格</option><option value="onDate"'+(state.sort==='onDate'?' selected':'')+'>上架时间</option><option value="offDate"'+(state.sort==='offDate'?' selected':'')+'>下架时间</option><option value="collected"'+(state.sort==='collected'?' selected':'')+'>收录时间</option></select>'+
     '<button class="btn" id="fAsc">'+(state.asc?'升序 ↑':'降序 ↓')+'</button>'+
     '<div class="search"><input type="text" id="fQ" value="'+state.q.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/说明" style="width:230px"></div>'+
     '<button class="btn'+(state.zeroOnly?' on':'')+'" id="fZero" title="只看 0 元业务">零元业务</button>'+
