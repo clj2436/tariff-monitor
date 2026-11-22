@@ -716,12 +716,27 @@ function provOptions(sel){
   return '<option value="all"'+(sel==='all'?' selected':'')+'>全部省份</option>'+
     PROVINCES.map(p=>'<option value="'+p+'"'+(sel===p?' selected':'')+'>'+p+'</option>').join('');
 }
+// 检索范围去重：仅「运营商 + 省份」完全相同才视为重复；
+// 存在包含关系的范围（如 全部×四川 与 中国移动×四川、中国移动×全部 与 中国移动×四川）不算重复，允许共存。
+function scopeSig(s){return (s&&s.op||'all')+'|'+(s&&s.prov||'all');}
+function dupScopeAt(scopes,i){
+  const sig=scopeSig(scopes[i]);
+  return scopes.findIndex((s,j)=>j!==i&&scopeSig(s)===sig);
+}
+// 新增范围时自动挑一个尚未使用的默认值，避免「加不进去」的情况
+function freshScope(scopes){
+  const seen=new Set(scopes.map(scopeSig));
+  const ops=['all',...Object.keys(CARRIERS)];
+  const provs=['all',...PROVINCES];
+  for(const p of provs) for(const o of ops){const c={op:o,prov:p};if(!seen.has(scopeSig(c))) return c;}
+  return {op:'all',prov:'all'};
+}
 function renderFieldSearch(){
   const sf=state.search;
   if(!sf.scopes||!sf.scopes.length) sf.scopes=[{op:'all',prov:'all'}];
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">字段检索 <span class="pill">按公示字段精确查找</span></h3>'+
     '<span class="card-desc">自定义检索范围（运营商 × 省份，可加多行）+ 字段 + 关键词，检索公示专区里的任意字段</span></div>'+
-    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。</div>'+
+    '<div class="scope-hint">检索范围：每行是一条「运营商 × 省份」条件（两者同时满足），多行之间满足任意一行即命中；都选「全部」即全网。完全相同的范围会自动去重（新增时自动避开已存在的范围）；仅互相包含的范围（如「全部运营商 × 四川」与「中国移动 × 四川」）允许重复添加。</div>'+
     '<div class="scope-list" id="scopeList"></div>'+
     '<div style="padding:10px 18px 0"><button class="btn" id="scopeAdd">＋ 添加范围条件</button></div>'+
     '<div class="adv-grid">'+
@@ -741,7 +756,15 @@ function renderFieldSearch(){
       '</div>').join('');
     $('scopeList').querySelectorAll('[data-si]').forEach(el=>el.addEventListener('change',e=>{
       const i=Number(e.target.dataset.si),k=e.target.dataset.k;
-      sf.scopes[i][k]=e.target.value;draw();
+      const old=sf.scopes[i][k];
+      sf.scopes[i][k]=e.target.value;
+      if(dupScopeAt(sf.scopes,i)>=0){
+        sf.scopes[i][k]=old;   // 回滚，避免同一范围出现两次
+        drawScopes();          // 同步下拉框显示回原值
+        toast('该范围已存在，未重复添加（互相包含的范围允许）');
+        return;
+      }
+      draw();
     }));
     $('scopeList').querySelectorAll('[data-sdel]').forEach(b=>b.addEventListener('click',()=>{
       sf.scopes.splice(Number(b.dataset.sdel),1);drawScopes();draw();
@@ -770,7 +793,9 @@ function renderFieldSearch(){
       (kw||sf.mode==='empty'?'<div class="empty">没有符合条件的资费。</div>':'');
     document.querySelectorAll('[data-detail]').forEach(b=>b.addEventListener('click',()=>openDetail(b.dataset.detail)));
   };
-  $('scopeAdd').addEventListener('click',()=>{sf.scopes.push({op:'all',prov:'all'});drawScopes();draw();});
+  $('scopeAdd').addEventListener('click',()=>{
+    sf.scopes.push(freshScope(sf.scopes));drawScopes();draw();
+  });
   $('sField').addEventListener('change',e=>{sf.field=e.target.value;draw();});
   $('sMode').addEventListener('change',e=>{sf.mode=e.target.value;draw();});
   $('sKw').addEventListener('input',e=>{sf.kw=e.target.value;draw();});
