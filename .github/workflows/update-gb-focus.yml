@@ -93,6 +93,7 @@ jobs:
           python3 scripts/notify_dingtalk.py \
             --force-rules 'gb:江西|吉林|贵州|四川|山西' \
             --input data/ops/gb-focus/current_changes.json \
+            --report-out data/ops/gb-focus/report.html \
             --state data/ops/gb-focus/.notify_state.json \
             --bot focus \
 

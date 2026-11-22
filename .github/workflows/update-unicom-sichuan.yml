@@ -91,6 +91,7 @@ jobs:
           python3 scripts/notify_dingtalk.py \
             --force-rules 'unicom:四川' \
             --input data/ops/unicom-sichuan/current_changes.json \
+            --report-out data/ops/unicom-sichuan/report.html \
             --state data/ops/unicom-sichuan/.notify_state.json \
             --bot focus \
 

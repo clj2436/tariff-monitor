@@ -94,6 +94,7 @@ jobs:
           python3 scripts/notify_dingtalk.py \
             --force-rules 'telecom:新疆|吉林|江西|贵州|四川|山西' \
             --input data/ops/telecom-focus/current_changes.json \
+            --report-out data/ops/telecom-focus/report.html \
             --state data/ops/telecom-focus/.notify_state.json \
             --bot focus \
 

@@ -21,6 +21,7 @@
   WATCH_RULES          可选，关注规则，默认 mobile:*;telecom:*
   EXCLUDE_RULES        可选，排除规则（格式同上），命中不推送；全量源用来剔除专项负责的重点组合
   SITE_URL             可选，资费专区地址，显示在消息末尾
+  --report-out         可选，把本轮全部变化写成自包含 HTML 报告页，消息附直达链接
   NOTIFY_MAX_ITEMS     可选，单条消息最多展示多少条变更，默认 30
   DINGTALK_SEND_GAP    可选，两次钉钉发送最小间隔秒数，默认 1.0（两路机器人之间也生效）
   DINGTALK_MAX_CHARS   可选，单条 markdown 最大字符数，默认 12000（超出截断防钉钉拒收）
@@ -74,6 +75,8 @@ OP_ALIAS = {
     "*": "*", "all": "*", "全部": "*",
 }
 OP_NAME = {"mobile": "中国移动", "telecom": "中国电信", "unicom": "中国联通", "gb": "中国广电"}
+DEFAULT_SITE_URL = "https://zf.chenlijun.eu.org"   # 站点自定义域名（仓库根 CNAME）
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 变化字段中文名，覆盖基础字段与全部公示详情字段（含上下架日期）
 FIELD_LABELS = {
     "price": "月费", "data": "通用流量", "voice": "语音", "broadband": "宽带",
@@ -171,7 +174,7 @@ def change_fingerprint(h):
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
-def build_markdown(changes, rules, site_url, max_items, tag=""):
+def build_markdown(changes, rules, site_url, max_items, tag="", report_url=""):
     scope = " / ".join(
         "%s·%s" % (OP_NAME.get(op, op), pv.replace("*", "全部")) for op, pv in rules
     ) or "全部"
@@ -198,18 +201,27 @@ def build_markdown(changes, rules, site_url, max_items, tag=""):
             pv = h.get("province") or "全国"
             lines.append("- **%s** · %s·%s  \n  %s" % (name, op, pv, describe(h)))
             shown += 1
-    if shown < len(changes):
+    if shown < len(changes) and not report_url:
         lines.append("> 另有 %d 条未展示，请查看完整资费专区。" % (len(changes) - shown))
     if site_url:
         lines.append("[查看完整资费专区](%s)" % site_url)
     out = "\n".join(lines)
-    # 钉钉单条 markdown 有长度上限，超长直接被拒；截断后仍给出完整专区提示
+    # 报告链接放最前面：消息超长被截断时，末尾内容会被砍掉，链接必须靠前才不会丢。
+    if report_url:
+        link = "### 👉 [查看本轮全部 %d 条变化明细](%s)\n> 可搜索、按类型/运营商筛选，每条都能展开看修改前后对比。\n\n" % (len(changes), report_url)
+        out = header + "\n" + link + out[len(header):].lstrip("\n")
+    # 钉钉单条 markdown 有长度上限，超长直接被拒；截断后仍保留报告链接与提示
     try:
         max_chars = int(os.environ.get("DINGTALK_MAX_CHARS", "12000") or 12000)
     except ValueError:
         max_chars = 12000
     if max_chars > 0 and len(out) > max_chars:
-        out = out[:max_chars] + "\n\n> ⚠️ 消息过长已截断，请到资费专区查看完整内容。"
+        tail = "\n\n> ⚠️ 消息过长，仅展示部分条目。"
+        if report_url:
+            tail += "全部 %d 条请点上方链接查看。" % len(changes)
+        else:
+            tail += "请到资费专区查看完整内容。"
+        out = out[:max_chars - len(tail)] + tail
     return out
 
 
@@ -640,6 +652,8 @@ def main():
                     help="把本次实际推送成功/预览的变化写出 json，供 merge 汇总剔除")
     ap.add_argument("--tag", default=os.environ.get("NOTIFY_TAG", ""),
                     help="消息来源标注，如「移动·片0」")
+    ap.add_argument("--report-out", default="",
+                    help="本轮全部变化的自包含 HTML 报告输出路径（如 data/ops/mobile/report.html），消息附直达链接")
     ap.add_argument("--bot", default=os.environ.get("NOTIFY_BOT", ""), choices=["", "focus", "other"],
                     help="钉钉机器人路线：focus=★重点、other=其他省份；留空用通用机器人")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
@@ -745,7 +759,22 @@ def main():
     max_items = int(cfg.get("max_items", args.max_items)) if cfg else args.max_items
     site_url = (cfg.get("site_url") if cfg and cfg.get("site_url") else "") or os.environ.get("SITE_URL", "")
 
-    text = build_markdown(hit, rules, site_url, max_items, tag=args.tag)
+    # 本轮全部变化写成自包含 HTML 报告，消息附直达链接（页面受长度限制只列前 N 条）
+    report_url = ""
+    if args.report_out:
+        try:
+            from build_report import write_report
+            report_path, _ = write_report(hit, args.report_out, args.tag)
+            base = (site_url or DEFAULT_SITE_URL).rstrip("/")
+            rel = os.path.relpath(report_path, REPO_ROOT).replace(os.sep, "/")
+            if rel.startswith("../"):   # 自定义路径不在仓库内时，直接用原路径，不拼出 ../ 非法 URL
+                rel = os.path.normpath(args.report_out).replace(os.sep, "/").lstrip("./")
+            report_url = base + "/" + rel.lstrip("/")
+            print("[报告] 已生成 %s（%d 条）→ %s" % (report_path, len(hit), report_url))
+        except Exception as e:
+            print("[报告] 生成失败（不影响推送）：%s" % e, file=sys.stderr)
+
+    text = build_markdown(hit, rules, site_url, max_items, tag=args.tag, report_url=report_url)
 
     if args.dry_run:
         print("--- 预览：%d/%d 条命中 ---" % (len(hit), len(changes)))

@@ -144,6 +144,7 @@ jobs:
             --force-rules 'unicom:*' \
             --exclude-rules 'unicom:四川|江西|吉林|贵州|山西' \
             --input data/ops/unicom/current_changes.json \
+            --report-out data/ops/unicom/report.html \
             --state data/ops/unicom/.notify_state.json \
             --bot other \
 

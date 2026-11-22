@@ -146,6 +146,7 @@ jobs:
             --force-rules 'mobile:*' \
             --exclude-rules 'mobile:江西|山西|贵州|吉林|四川' \
             --input data/ops/mobile/current_changes.json \
+            --report-out data/ops/mobile/report.html \
             --state data/ops/mobile/.notify_state.json \
             --bot other \
 

@@ -97,6 +97,7 @@ jobs:
           python3 scripts/notify_dingtalk.py \
             --force-rules 'unicom:江西|吉林|贵州|山西' \
             --input data/ops/unicom-focus/current_changes.json \
+            --report-out data/ops/unicom-focus/report.html \
             --state data/ops/unicom-focus/.notify_state.json \
             --bot focus \
 

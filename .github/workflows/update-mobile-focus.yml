@@ -97,6 +97,7 @@ jobs:
           python3 scripts/notify_dingtalk.py \
             --force-rules 'mobile:江西|山西|贵州|吉林|四川' \
             --input data/ops/mobile-focus/current_changes.json \
+            --report-out data/ops/mobile-focus/report.html \
             --state data/ops/mobile-focus/.notify_state.json \
             --bot focus \
 
