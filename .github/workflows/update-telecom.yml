@@ -82,7 +82,7 @@ jobs:
         run: |
           python3 scripts/notify_dingtalk.py \
             --force-rules 'telecom:*' \
-            --exclude-rules 'telecom:新疆|吉林|江西' \
+            --exclude-rules 'telecom:新疆|吉林|江西|贵州|四川|山西' \
             --input data/ops/telecom/current_changes.json \
             --state data/ops/telecom/.notify_state.json \
             --tag '其他·电信'

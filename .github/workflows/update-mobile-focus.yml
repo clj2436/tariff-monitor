@@ -41,13 +41,13 @@ jobs:
           FETCH_INTERVAL: ${{ vars.FETCH_INTERVAL || '2' }}
           GLOBAL_TIME_BUDGET_MIN: ${{ vars.FOCUS_TIME_BUDGET_MIN || '45' }}
           # 首轮专项目录为空：只建基线不记变化，避免整批旧资费误报「新上架」刷屏
-          BASELINE_PROVINCES: '江西,山西,贵州,吉林'
+          BASELINE_PROVINCES: '江西,山西,贵州,吉林,四川'
         run: |
           python3 scripts/build_data.py \
             --carriers mobile \
-            --sections jiangxi,shanxi,guizhou,jilin \
+            --sections jiangxi,shanxi,guizhou,jilin,sichuan \
             --out data/ops/mobile-focus \
-            --baseline-if-empty --baseline-provinces '江西,山西,贵州,吉林'
+            --baseline-if-empty --baseline-provinces '江西,山西,贵州,吉林,四川'
 
       - name: 校验专项数据
         run: |
@@ -66,10 +66,10 @@ jobs:
             print('警告：本轮移动重点省份未抓到数据，已保留上一轮结果')
           else:
             by = meta.get('by_province') or {}
-            missing = [p for p in ('江西','山西','贵州','吉林') if not by.get(p)]
+            missing = [p for p in ('江西','山西','贵州','吉林','四川') if not by.get(p)]
             print('移动重点专项校验通过：%d 条，本轮 %d 条变更；各省 %s%s' % (
               len(items), meta.get('changes', 0),
-              ', '.join('%s:%s' % (p, by.get(p, 0)) for p in ('江西','山西','贵州','吉林')),
+              ', '.join('%s:%s' % (p, by.get(p, 0)) for p in ('江西','山西','贵州','吉林','四川')),
               '（缺省：%s）' % ','.join(missing) if missing else ''))
           PYCHECK
 
@@ -77,7 +77,7 @@ jobs:
         continue-on-error: true     # 推送失败不阻断数据提交
         env:
           NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
-          WATCH_RULES: 'mobile:江西|山西|贵州|吉林'
+          WATCH_RULES: 'mobile:江西|山西|贵州|吉林|四川'
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
