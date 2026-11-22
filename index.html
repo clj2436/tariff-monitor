@@ -477,7 +477,7 @@ function saveSel(){
   try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
 const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',priceMin:'',priceMax:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,
-  histQ:'',histKind:'all',histPmin:'',histPmax:'',histSort:'desc',page:1,size:12,
+  histQ:'',histKind:'all',histPmin:'',histPmax:'',histSort:'desc',histZero:false,page:1,size:12,
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),maxItems:Number(localStorage.getItem('tariff_max_items')||30),
@@ -868,6 +868,7 @@ function renderHistory(){
     '<select id="hKind"><option value="all">全部变更类型</option>'+['新增','修改','下架'].map(k=>'<option'+(state.histKind===k?' selected':'')+'>'+k+'</option>').join('')+'</select>'+
     '<select id="hSort" title="按变化日期排序"><option value="desc"'+(state.histSort==='desc'?' selected':'')+'>日期：最新在前</option><option value="asc"'+(state.histSort==='asc'?' selected':'')+'>日期：最早在前</option></select>'+
     '<div class="price-range" title="按月费区间筛选（元/月，可只填一端）"><input type="number" id="hPmin" min="0" step="any" placeholder="最低月费" value="'+escHtml(state.histPmin)+'"><span>—</span><input type="number" id="hPmax" min="0" step="any" placeholder="最高月费" value="'+escHtml(state.histPmax)+'"><span class="price-unit">元</span></div>'+
+    '<button class="btn'+(state.histZero?' on':'')+'" id="hZero" title="只看 0 元业务">零元业务</button>'+
     '<button class="btn'+(state.histMode==='item'?' on':'')+'" id="hModeItem">按资费</button>'+
     '<button class="btn'+(state.histMode==='batch'?' on':'')+'" id="hModeBatch">按批次</button>'+
     '<button class="btn" id="hExpand">全部展开</button>'+
@@ -891,6 +892,7 @@ function renderHistory(){
       '<div class="tl-title"><span class="chg '+c+'">'+h.kind+'</span> '+
       (showProv?'<span class="muted" style="font-weight:400;font-size:11.5px">'+h.province+' · </span>':'')+
       '<span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span>'+
+      (Number(h.price)===0?' <span class="price zero">0元</span>':'')+
       '<button class="detail hdetail" data-hdetail="'+(h._hi||0)+'">查看</button></div>'+
       '<div class="tl-change">'+h.name+'</div><div class="tl-change muted">'+changeText(h)+'</div></div></div>';
   };
@@ -913,6 +915,7 @@ function renderHistory(){
       return '<div class="hist-group'+((gi===0||state.histExpand)?' open':'')+'" data-k="'+gi+'">'+
         '<div class="hist-head"><span class="hist-arrow">▶</span>'+
         '<div class="hist-main"><div class="hist-name">'+latest.name+' <span class="chg '+cls+'">'+latest.kind+'</span>'+
+        (Number(latest.price)===0?' <span class="price zero">0元</span>':'')+
         (latest.code?'<span class="hist-code">'+latest.code+'</span>':'')+'</div>'+
         '<div class="hist-summary">'+latest.province+' · '+span+' · 最近：'+changeText(latest)+'</div></div>'+
         '<button class="detail hdetail" data-hdetail="'+(latest._hi||0)+'" style="flex:none">查看</button>'+
@@ -958,6 +961,7 @@ function renderHistory(){
     const pv=$('hProv').value;
     if(pv!=='all') list=list.filter(h=>h.province===pv);
     if(state.histKind!=='all') list=list.filter(h=>h.kind===state.histKind);
+    if(state.histZero) list=list.filter(h=>Number(h.price)===0);
     // 关键词：名称/编号/省份/变更说明/前后值，空格分隔时按 AND 命中
     const kw=state.histQ.trim().toLowerCase();
     if(kw) list=list.filter(h=>{const hay=histHay(h);return kw.split(/\s+/).every(t=>hay.indexOf(t)>=0);});
@@ -972,10 +976,11 @@ function renderHistory(){
   $('hQ').addEventListener('input',e=>{state.histQ=e.target.value;state.histPage=1;draw();});
   $('hKind').addEventListener('change',e=>{state.histKind=e.target.value;state.histPage=1;draw();});
   $('hSort').addEventListener('change',e=>{state.histSort=e.target.value;state.histPage=1;draw();});
+  $('hZero').addEventListener('click',()=>{state.histZero=!state.histZero;state.histPage=1;draw();$('hZero').classList.toggle('on',state.histZero);});
   $('hPmin').addEventListener('input',e=>{state.histPmin=e.target.value;state.histPage=1;draw();});
   $('hPmax').addEventListener('input',e=>{state.histPmax=e.target.value;state.histPage=1;draw();});
   $('hReset').addEventListener('click',()=>{
-    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histSort='desc';state.histPage=1;
+    state.histQ='';state.histKind='all';state.histPmin='';state.histPmax='';state.histSort='desc';state.histZero=false;state.histPage=1;
     render();
   });
   $('hModeItem').addEventListener('click',()=>{state.histMode='item';state.histPage=1;render();});
@@ -1100,27 +1105,28 @@ async function loadPushStatus(force){
   if(!force&&_botStatusHtml&&Date.now()-_botStatusAt<60000){box.innerHTML=_botStatusHtml;bindStatusRefresh();return;}
   box.innerHTML='<div class="muted">正在读取机器人状态…</div>';
   const recs=[];
-  const sources=OPS.map(op=>[opName(op),'data/ops/'+op+'/push_status.json']);
-  sources.push(['通道测试','data/push_status.json']);
-  await Promise.all(sources.map(async ([label,url])=>{
+  const sources=OPS.map(op=>'data/ops/'+op+'/push_status.json');
+  sources.push('data/push_status.json');
+  // 状态只按两路机器人归类：重点运营商 / 非重点运营商，不展示各专项抓取源名字
+  const routeOf=b=>b==='focus'?'重点运营商':b==='other'?'非重点运营商':'通用';
+  await Promise.all(sources.map(async url=>{
     try{const arr=await fetchJSON(url+'?t='+Date.now(),6000);
-      if(Array.isArray(arr)) arr.forEach(r=>recs.push({...r,src:label}));
+      if(Array.isArray(arr)) arr.forEach(r=>recs.push({...r,route:routeOf(r.bot)}));
     }catch(e){}
   }));
   recs.sort((a,b)=>String(b.time).localeCompare(String(a.time)));
   // 两路机器人是否配置，取最近任一条上报里的标记；不同源上报的字段可能先后到达，故取"任一为真"
   const anyFocus=recs.some(r=>r.dingtalk_focus), anyOther=recs.some(r=>r.dingtalk_other);
   const anyGeneric=recs.some(r=>r.dingtalk);
-  const cfg='重点机器人：'+(anyFocus?'已配置':'未检测到')+'　|　其他机器人：'+(anyOther?'已配置':'未检测到')+(anyGeneric?'（含通用兜底）':'');
+  const cfg='重点运营商：'+(anyFocus?'已配置':'未检测到')+'　|　非重点运营商：'+(anyOther?'已配置':'未检测到')+(anyGeneric?'（含通用兜底）':'');
   const map={ok:['成功','ok'],fail:['失败','err'],skip:['无需推送','muted'],noconfig:['未配置通道','warn'],test:['测试','info']};
-  const botLabel=b=>b==='focus'?'★重点':b==='other'?'其他':'通用';
   let html='<div class="bot-state"><span class="pill">'+escHtml(cfg)+'</span><span class="muted">共 '+recs.length+' 条上报</span></div>';
   if(!recs.length) html+='<div class="muted">还没有推送记录。工作流跑过一次后，这里会自动显示最近结果。</div>';
-  else html+='<div class="table-wrap"><table class="pub-table"><thead><tr><th>时间</th><th>来源</th><th>机器人</th><th>状态</th><th>条数</th><th>说明</th></tr></thead><tbody>'+
+  else html+='<div class="table-wrap"><table class="pub-table"><thead><tr><th>时间</th><th>推送路线</th><th>状态</th><th>条数</th><th>说明</th></tr></thead><tbody>'+
     recs.slice(0,12).map(r=>{const m=map[r.status]||[r.status||'未知','muted'];
-      return '<tr><td>'+escHtml(r.time)+'</td><td>'+escHtml(r.src||'')+(r.tag?' · '+escHtml(r.tag):'')+'</td>'+
-        '<td><span class="pill" style="font-size:11px">'+botLabel(r.bot)+'</span></td>'+
-        '<td><span class="push-'+m[1]+'">'+m[0]+'</span></td><td>'+(Number(r.count)||0)+'</td><td class="muted">'+escHtml(r.detail||'')+'</td></tr>';
+      return '<tr><td>'+escHtml(r.time)+'</td><td><span class="pill" style="font-size:11px">'+escHtml(r.route||'通用')+'</span></td>'+
+        '<td><span class="push-'+m[1]+'">'+m[0]+'</span></td><td>'+(Number(r.count)||0)+'</td>'+
+        '<td class="muted">'+(r.tag?escHtml(r.tag)+' · ':'')+escHtml(r.detail||'')+'</td></tr>';
     }).join('')+'</tbody></table></div>';
   try{
     const runs=await fetchJSON('https://api.github.com/repos/'+SUB_REPO+'/actions/runs?per_page=8',8000);
@@ -1177,10 +1183,10 @@ function renderSubscribe(){
       '<div class="bot-config" id="botCfgForm" style="display:none">'+
         '<div id="cfgLoadedNote" class="cfg-note"></div>'+
         '<div class="cfg-grid">'+
-          '<div class="cfg-group"><div class="cfg-title">★重点机器人 <span>五个专项源</span></div>'+
+          '<div class="cfg-group"><div class="cfg-title">★重点运营商机器人 <span>重点关注范围</span></div>'+
             '<div class="sub-field"><label>Webhook</label><input type="password" id="subWebhookFocus" placeholder="留空不修改" autocomplete="off"></div>'+
             '<div class="sub-field"><label>加签密钥</label><input type="password" id="subSecretFocus" placeholder="留空不修改" autocomplete="off"></div></div>'+
-          '<div class="cfg-group"><div class="cfg-title">其他机器人 <span>四家全量源</span></div>'+
+          '<div class="cfg-group"><div class="cfg-title">非重点运营商机器人 <span>其他范围</span></div>'+
             '<div class="sub-field"><label>Webhook</label><input type="password" id="subWebhookOther" placeholder="留空不修改" autocomplete="off"></div>'+
             '<div class="sub-field"><label>加签密钥</label><input type="password" id="subSecretOther" placeholder="留空不修改" autocomplete="off"></div></div>'+
         '</div>'+

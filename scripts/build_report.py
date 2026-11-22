@@ -116,6 +116,13 @@ def _pairs(items):
     return [[k, v] for k, v in items if v not in (None, "", "—")]
 
 
+def _is_zero(v):
+    try:
+        return float(v) == 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _split_note(note):
     """与页面 splitNote() 一致：按编号段落/分号拆成多条，便于逐条展示。"""
     if not note:
@@ -236,6 +243,7 @@ def _prepare(rows):
             "name": h.get("name") or "未命名资费",
             "code": h.get("code") or "",
             "price": _money(h.get("price")),
+            "isZero": _is_zero(h.get("price")),
             "date": h.get("date") or "",
             "summary": change_summary(h),
             "changes": _change_items(h),
@@ -249,7 +257,7 @@ TPL = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{--bg:#f5f7fb;--card:#fff;--card2:#fafbfc;--ink:#1f2937;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--border:#e5e7eb;--blue:#2563eb;--blue-soft:#eff6ff;--red:#dc2626;--green:#059669;--warn:#b45309}
+:root{--bg:#f5f7fb;--card:#fff;--card2:#fafbfc;--ink:#1f2937;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--border:#e5e7eb;--blue:#2563eb;--blue-soft:#eff6ff;--red:#dc2626;--green:#059669;--down:#0f9d6e;--warn:#b45309}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
 .wrap{max-width:800px;margin:0 auto;padding:20px 16px}
 h1{font-size:19px;margin:0 0 3px;font-weight:700}
@@ -260,6 +268,9 @@ h1{font-size:19px;margin:0 0 3px;font-weight:700}
 .tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:3px}
 .tab{border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12.5px;white-space:nowrap}
 .tab.on{background:var(--blue);color:#fff}
+.zbtn{border:1px solid var(--line);background:var(--card);color:var(--muted);padding:6px 11px;border-radius:9px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.zbtn:hover{border-color:var(--blue);color:var(--blue)}.zbtn.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+.price{font-weight:750;font-size:13.5px;font-variant-numeric:tabular-nums}.price.zero{color:var(--down)}
 .cnt{color:var(--muted);font-size:12px;margin:0 0 10px}
 .item{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:7px;overflow:hidden}
 .row{padding:11px 14px;cursor:pointer;display:flex;gap:9px;align-items:flex-start}
@@ -310,7 +321,7 @@ h1{font-size:19px;margin:0 0 3px;font-weight:700}
 <input type="search" id="q" placeholder="搜索名称 / 编号 / 变更内容">
 <div class="tabs">
 <button class="tab on" data-k="">全部</button><button class="tab" data-k="新增">新增</button><button class="tab" data-k="修改">修改</button><button class="tab" data-k="下架">下架</button>
-</div></div>
+</div><button class="zbtn" id="zBtn" title="只看 0 元业务">零元业务</button></div>
 <div class="cnt" id="cnt"></div>
 <div id="list"></div>
 <div class="foot">资费数据由自动任务定时抓取 · 实际资费以运营商官网为准</div>
@@ -319,7 +330,7 @@ h1{font-size:19px;margin:0 0 3px;font-weight:700}
 const ROWS=__DATA__;
 const $=(s)=>document.querySelector(s);
 const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let kind='';
+let kind='',zeroOnly=false;
 function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
   $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · __SUBTITLE__';
@@ -350,6 +361,7 @@ function draw(){
   const kw=$('#q').value.trim().toLowerCase();
   const list=ROWS.filter(h=>{
     if(kind&&h.kind!==kind)return false;
+    if(zeroOnly&&!h.isZero)return false;
     if(!kw)return true;
     const hay=(h.name+' '+h.code+' '+h.summary+' '+h.province).toLowerCase();
     return kw.split(/\\s+/).every(t=>hay.indexOf(t)>=0);
@@ -359,7 +371,7 @@ function draw(){
   $('#list').innerHTML=list.map(h=>{
     const c=h.kind==='新增'?'b-new':h.kind==='下架'?'b-off':'b-mod';
     return '<div class="item"><div class="row"><span class="badge '+c+'">'+esc(h.kind)+'</span>'+
-      '<div class="main"><div class="title">'+esc(h.name)+'</div>'+
+      '<div class="main"><div class="title">'+esc(h.name)+(h.isZero?' <span class="price zero">0元</span>':'')+'</div>'+
       '<div class="meta">'+esc(h.province)+(h.code?' · '+esc(h.code):'')+' · '+esc(h.date)+'</div>'+
       '<div class="summary">'+esc(h.summary)+'</div></div><span class="arw">▶</span></div>'+
       '<div class="body">'+detail(h)+'</div></div>';
@@ -370,6 +382,7 @@ $('#q').addEventListener('input',draw);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
   kind=b.dataset.k;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));draw();
 }));
+$('#zBtn').addEventListener('click',()=>{zeroOnly=!zeroOnly;$('#zBtn').classList.toggle('on',zeroOnly);draw();});
 initSub();draw();
 </script></body></html>"""
 
