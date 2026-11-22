@@ -1,5 +1,19 @@
 [
   {
+    "time": "2026-11-22 21:01:01",
+    "tag": "",
+    "status": "ok",
+    "count": 207,
+    "detail": "",
+    "channels": [
+      "钉钉·重点"
+    ],
+    "bot": "focus",
+    "dingtalk": true,
+    "dingtalk_focus": true,
+    "dingtalk_other": false
+  },
+  {
     "time": "2026-11-22 17:03:05",
     "tag": "",
     "status": "ok",
