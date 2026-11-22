@@ -184,6 +184,18 @@ tbody tr:hover{background:var(--card2)}
 .sub-status.info{background:var(--blue-soft);color:var(--blue);border:1px solid var(--border)}
 body.dark .sub-status.ok{background:#14532d;color:#86efac;border-color:#166534}
 body.dark .sub-status.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
+.unlock-bar{display:flex;gap:8px;margin:6px 0 4px}
+.unlock-bar input{flex:1;min-width:0}
+.cfg-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.cfg-group{background:var(--card2);border:1px solid var(--border);border-radius:9px;padding:11px 12px}
+.cfg-title{font-size:12.5px;font-weight:700;margin-bottom:9px}
+.cfg-title span{font-weight:400;color:var(--muted);font-size:11px;margin-left:5px}
+.cfg-note{font-size:11.5px;color:var(--blue);background:var(--blue-soft);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:12px;line-height:1.6}
+.adv-box{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+.adv-box summary{cursor:pointer;font-size:11.5px;color:var(--muted);user-select:none}
+.adv-box summary:hover{color:var(--blue)}
+.adv-box .sub-field{margin-top:10px}
+@media(max-width:640px){.cfg-grid{grid-template-columns:1fr}}
 .sub-summary{font-size:11.5px;color:var(--muted);padding:9px 11px;background:var(--card2);border:1px solid var(--border);border-radius:7px;margin-bottom:12px;line-height:1.7}
 .sub-summary b{color:var(--text)}
 .sub-warn{font-size:11px;color:var(--warn);margin-top:6px;line-height:1.6}
@@ -986,29 +998,80 @@ async function workerCall(payload){
   if(!res.ok) throw new Error((j&&j.error)||('Worker 返回 HTTP '+res.status));
   return j;
 }
+/* 读取当前配置：密码正确后 Worker 回显，密钥只显示「已配置+尾号」，真值不可回读 */
+async function readBotConfig(){
+  const s=state.sub;
+  if(!workerUrl()){subStatus('请先在下方「高级」里填写配置代理 Worker 地址。','err');return;}
+  if(!s.workerPwd){subStatus('请输入配置密码。','err');return;}
+  const btn=$('subReadCfg');btn.disabled=true;btn.textContent='读取中…';
+  subStatus('正在通过配置代理读取当前配置…','info');
+  try{
+    const r=await workerCall({action:'read'});
+    const c=r.config||{};
+    // 明文可回读的字段：直接回填
+    s.channels=c.channels||'';
+    s.siteUrl=c.site_url||'';
+    s.maxItems=c.max_items||30;
+    // 关注范围也以仓库为准回填，保证「保存修改」时不会误覆盖
+    if(Array.isArray(c.rules)){
+      const rs={};c.rules.forEach(r=>{if(r&&r.op) rs[r.op]=(r.provinces||[]).slice();});
+      Object.keys(CARRIERS).forEach(op=>{s.rules[op]=rs[op]||[];});
+      localStorage.setItem('tariff_sub_rules',JSON.stringify(s.rules));
+    }
+    if($('subChannels')) $('subChannels').value=s.channels;
+    if($('subSiteUrl')) $('subSiteUrl').value=s.siteUrl;
+    if($('subMax')) $('subMax').value=s.maxItems;
+    // 密钥：只展示状态，输入框留空（留空=不改）
+    const setHint=(id,key)=>{
+      const el=$(id);if(!el)return;
+      const b=c.bots&&c.bots[key];
+      el.value='';
+      el.placeholder=b&&b.set?('已配置'+(b.tail?' ···'+b.tail:'')+'，留空不改'):'未配置，填入即新增';
+      el.title=b&&b.updated?('更新于 '+b.updated):'';
+    };
+    setHint('subWebhookFocus','DINGTALK_WEBHOOK_FOCUS');
+    setHint('subSecretFocus','DINGTALK_SECRET_FOCUS');
+    setHint('subWebhookOther','DINGTALK_WEBHOOK_OTHER');
+    setHint('subSecretOther','DINGTALK_SECRET_OTHER');
+    setHint('subWebhook','DINGTALK_WEBHOOK');
+    setHint('subSecret','DINGTALK_SECRET');
+    const form=$('botCfgForm');if(form) form.style.display='';
+    const note=$('cfgLoadedNote');
+    if(note) note.innerHTML='✓ 已读取。<b>密钥无法回显原文</b>，上面显示的只是尾号；要改某一项，直接在对应框里填新值，留空则不改。'+
+      (c.snapshot_persistent?'（尾号已持久化保存）':'（尾号暂存在 Worker 内存中，重启后可能丢失）');
+    subStatus('✓ 读取成功。可直接在上方修改，改完点「保存修改」。','ok');
+  }catch(e){subStatus('读取失败：'+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent='读取配置';}
+}
+
 async function saveBotConfig(){
   const s=state.sub;
+  // 只提交当前表单里填了值的项：留空=不改，因此可以只改一项
+  const readVal=id=>{const el=$(id);return el?el.value.trim():'';};
+  const fields=[['subWebhookFocus','webhook_focus'],['subSecretFocus','secret_focus'],
+    ['subWebhookOther','webhook_other'],['subSecretOther','secret_other'],
+    ['subWebhook','webhook'],['subSecret','secret'],
+    ['subChannels','channels'],['subSiteUrl','site_url']];
   const payload={};
-  if((s.webhookFocus||'').trim()) payload.webhook_focus=s.webhookFocus.trim();
-  if((s.secretFocus||'').trim()) payload.secret_focus=s.secretFocus.trim();
-  if((s.webhookOther||'').trim()) payload.webhook_other=s.webhookOther.trim();
-  if((s.secretOther||'').trim()) payload.secret_other=s.secretOther.trim();
-  if((s.webhook||'').trim()) payload.webhook=s.webhook.trim();
-  if((s.secret||'').trim()) payload.secret=s.secret.trim();
-  if((s.channels||'').trim()) payload.channels=s.channels.trim();
-  if((s.siteUrl||'').trim()) payload.site_url=s.siteUrl.trim();
-  if(!Object.keys(payload).length){subStatus('没有填写任何要保存的值。留空表示不修改现有配置。','err');return;}
+  fields.forEach(([id,key])=>{const v=readVal(id);if(v) payload[key]=v;});
+  const maxV=readVal('subMax');
+  if(maxV) payload.max_items=Math.max(1,Number(maxV)||30);
+  // 关注范围随保存一并提交（读取时已用仓库值回填，不会误覆盖）
+  payload.rules=Object.keys(CARRIERS).map(op=>({op,provinces:(s.rules[op]||[]).slice()})).filter(r=>r.provinces.length);
+  const onlyRules=Object.keys(payload).length===1;
+  if(onlyRules&&!subCount()){subStatus('没有要保存的改动。要改某一项，请先在对应输入框填新值。','err');return;}
   const btn=$('subSaveBot');btn.disabled=true;btn.textContent='保存中…';
   subStatus('正在通过配置代理写入 GitHub（Secret 需加密，可能需要几秒）…','info');
   try{
     const r=await workerCall(payload);
-    ['webhook','secret','webhookFocus','secretFocus','webhookOther','secretOther'].forEach(k=>{s[k]='';});
-    ['subWebhook','subSecret','subWebhookFocus','subSecretFocus','subWebhookOther','subSecretOther'].forEach(id=>{if($(id)) $(id).value='';});
     const okLine=(r.done&&r.done.length?r.done.join('、'):'无');
     const errLine=(r.errors&&r.errors.length?'\n\n部分失败：\n'+r.errors.join('\n'):'');
-    subStatus('✓ 已保存：'+okLine+'。'+errLine+'\nSecret 无法回读，可到仓库 Settings 确认。',(r.errors&&r.errors.length)?'err':'ok');
+    subStatus('✓ 已保存：'+okLine+'。'+errLine+'\n密钥原文无法回读，可到仓库 Settings 确认。',(r.errors&&r.errors.length)?'err':'ok');
+    // 清空本次填写，随后自动刷新回显（尾号/状态）
+    ['subWebhook','subSecret','subWebhookFocus','subSecretFocus','subWebhookOther','subSecretOther'].forEach(id=>{if($(id)) $(id).value='';});
+    if($('subReadCfg')){try{await readBotConfig();}catch(e){}}
   }catch(e){subStatus('保存失败：'+e.message,'err');}
-  finally{btn.disabled=false;btn.textContent='保存机器人配置到 GitHub';}
+  finally{btn.disabled=false;btn.textContent='保存修改';}
 }
 /* 机器人状态：汇总 9 个源上报的 push_status.json + GitHub Actions 最近运行 */
 let _botStatusAt=0,_botStatusHtml='';
@@ -1086,30 +1149,36 @@ function renderSubscribe(){
       '<div class="bot-status" id="botStatus"><div class="muted">正在读取机器人状态…</div></div>'+
     '</div>'+
     '<div class="card sub-sec">'+
-      '<h4>③ 钉钉机器人参数（两路）</h4>'+
-      '<p class="sub-note">写操作由配置代理 Worker 代为完成。<b>留空表示不修改该项</b>；Secret 无法回读，不能在这里看到原值。</p>'+
-      '<div class="bot-config">'+
-        '<p class="sub-hint" style="color:var(--warn)">推送分两路，<b>建议各建一个钉钉群机器人</b>：<b>★重点</b>（五个专项源：移动/电信/联通/广电重点 + 四川联通）与 <b>其他·X</b>（四家全量源的非重点省份）。两路各自填 Webhook / 加签密钥；若只配了下方「通用兜底」，两路都会发到同一个群。</p>'+
-        '<div class="sub-field"><label>① 重点机器人 Webhook · DINGTALK_WEBHOOK_FOCUS</label><input type="password" id="subWebhookFocus" placeholder="留空不修改；粘贴钉钉机器人地址" autocomplete="off" value="'+escHtml(s.webhookFocus||'')+'"></div>'+
-        '<div class="sub-field"><label>① 重点机器人加签密钥 · DINGTALK_SECRET_FOCUS</label><input type="password" id="subSecretFocus" placeholder="SEC 开头；关键词安全设置则留空" autocomplete="off" value="'+escHtml(s.secretFocus||'')+'"></div>'+
-        '<div class="sub-field"><label>② 其他机器人 Webhook · DINGTALK_WEBHOOK_OTHER</label><input type="password" id="subWebhookOther" placeholder="留空不修改；粘贴钉钉机器人地址" autocomplete="off" value="'+escHtml(s.webhookOther||'')+'"></div>'+
-        '<div class="sub-field"><label>② 其他机器人加签密钥 · DINGTALK_SECRET_OTHER</label><input type="password" id="subSecretOther" placeholder="SEC 开头；关键词安全设置则留空" autocomplete="off" value="'+escHtml(s.secretOther||'')+'"></div>'+
-        '<div class="sub-field"><label>通用兜底 Webhook · DINGTALK_WEBHOOK（两路专用都没填时用）</label><input type="password" id="subWebhook" placeholder="留空不修改" autocomplete="off" value="'+escHtml(s.webhook||'')+'"></div>'+
-        '<div class="sub-field"><label>通用兜底加签密钥 · DINGTALK_SECRET</label><input type="password" id="subSecret" placeholder="SEC 开头；留空不修改" autocomplete="off" value="'+escHtml(s.secret||'')+'"></div>'+
-        '<div class="sub-field"><label>Variable · NOTIFY_CHANNELS（推送通道）</label><input type="text" id="subChannels" placeholder="dingtalk / all，留空不修改" value="'+escHtml(s.channels||'')+'"></div>'+
-        '<div class="sub-field"><label>Variable · SITE_URL（消息里的站点地址）</label><input type="text" id="subSiteUrl" placeholder="留空不修改" value="'+escHtml(s.siteUrl||'')+'"></div>'+
-        '<div class="sub-field"><label>单条消息最多展示变更数（写入规则文件）</label><input type="text" id="subMax" value="'+s.maxItems+'" inputmode="numeric"></div>'+
-        '<div class="sub-actions"><button type="button" class="btn on" id="subSaveBot">保存机器人配置到 GitHub</button></div>'+
+      '<h4>③ 机器人配置</h4>'+
+      '<p class="sub-hint">输入配置密码点「读取配置」，即可查看当前设置并直接修改。<b>密钥无法回读原文</b>，只显示「已配置」与尾号；留空表示不改动。</p>'+
+      '<div class="unlock-bar">'+
+        '<input type="password" id="subWorkerPwd" placeholder="配置密码（与 Worker 的 SITE_PASSWORD 一致）" autocomplete="off">'+
+        '<button type="button" class="btn on" id="subReadCfg">读取配置</button>'+
       '</div>'+
-      '<div class="bot-config" style="margin-top:14px">'+
-        '<h4 style="margin-top:0">④ 配置代理与凭证</h4>'+
-        '<p class="sub-hint">页面不接触 GitHub PAT： PAT 与密码都只存在你部署的 Worker 服务端。填入 Worker 地址与密码后即可保存上方参数、同步关注规则。密码<b>只存内存</b>，刷新需重填；Worker 地址存本机。</p>'+
-        '<div class="sub-field"><label>配置代理 Worker 地址（Cloudflare Workers）</label><input type="text" id="subWorkerUrl" placeholder="https://你的worker.你的账号.workers.dev" autocomplete="off" value="'+escHtml(s.workerUrl||'')+'"></div>'+
-        '<div class="sub-field"><label>配置密码（与 Worker 的 SITE_PASSWORD 一致）</label><input type="password" id="subWorkerPwd" placeholder="输入配置密码" autocomplete="off" value=""></div>'+
-        '<div class="sub-actions"><button type="button" class="btn" id="subSync">同步关注规则到仓库</button><button type="button" class="btn" id="subPreview">预览配置</button></div>'+
+      '<div class="bot-config" id="botCfgForm" style="display:none">'+
+        '<div id="cfgLoadedNote" class="cfg-note"></div>'+
+        '<div class="cfg-grid">'+
+          '<div class="cfg-group"><div class="cfg-title">★重点机器人 <span>五个专项源</span></div>'+
+            '<div class="sub-field"><label>Webhook</label><input type="password" id="subWebhookFocus" placeholder="留空不修改" autocomplete="off"></div>'+
+            '<div class="sub-field"><label>加签密钥</label><input type="password" id="subSecretFocus" placeholder="留空不修改" autocomplete="off"></div></div>'+
+          '<div class="cfg-group"><div class="cfg-title">其他机器人 <span>四家全量源</span></div>'+
+            '<div class="sub-field"><label>Webhook</label><input type="password" id="subWebhookOther" placeholder="留空不修改" autocomplete="off"></div>'+
+            '<div class="sub-field"><label>加签密钥</label><input type="password" id="subSecretOther" placeholder="留空不修改" autocomplete="off"></div></div>'+
+        '</div>'+
+        '<details class="adv-box"><summary>通用兜底 / 通道 / 站点地址 / 消息上限（点开）</summary>'+
+          '<div class="sub-field"><label>通用兜底 Webhook（两路都没配时才用）</label><input type="password" id="subWebhook" placeholder="留空不修改" autocomplete="off"></div>'+
+          '<div class="sub-field"><label>通用兜底加签密钥</label><input type="password" id="subSecret" placeholder="留空不修改" autocomplete="off"></div>'+
+          '<div class="sub-field"><label>推送通道 · NOTIFY_CHANNELS</label><input type="text" id="subChannels" placeholder="dingtalk / all"></div>'+
+          '<div class="sub-field"><label>站点地址 · SITE_URL</label><input type="text" id="subSiteUrl" placeholder="https://zf.chenlijun.eu.org"></div>'+
+          '<div class="sub-field"><label>单条消息最多展示变更数</label><input type="text" id="subMax" inputmode="numeric"></div>'+
+        '</details>'+
+        '<div class="sub-actions"><button type="button" class="btn on" id="subSaveBot">保存修改</button></div>'+
       '</div>'+
+      '<details class="adv-box"><summary>高级 · 配置代理 Worker 地址（一般无需改动）</summary>'+
+        '<p class="sub-hint">页面不接触 GitHub PAT，读写都由你部署的 Worker 代劳。地址存本机。</p>'+
+        '<div class="sub-field"><label>Worker 地址（Cloudflare Workers）</label><input type="text" id="subWorkerUrl" placeholder="https://你的worker.workers.dev" autocomplete="off" value="'+escHtml(s.workerUrl||'')+'"></div>'+
+      '</details>'+
       '<div class="sub-status" id="subStatus"></div>'+
-    '</div>'+
     '</div>';
 
   // 绑定：单个省份勾选
@@ -1145,9 +1214,8 @@ function renderSubscribe(){
   if($('subMax')) $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
   if($('subWorkerUrl')) $('subWorkerUrl').addEventListener('input',e=>{s.workerUrl=e.target.value;localStorage.setItem('tariff_worker_url',e.target.value);});
   if($('subWorkerPwd')) $('subWorkerPwd').addEventListener('input',e=>{s.workerPwd=e.target.value;});
+  if($('subReadCfg')) $('subReadCfg').addEventListener('click',readBotConfig);
   if($('subSaveBot')) $('subSaveBot').addEventListener('click',saveBotConfig);
-  $('subPreview').addEventListener('click',previewSubConfig);
-  $('subSync').addEventListener('click',syncSubConfig);
   loadPushStatus();
 }
 function toggleSub(op,pv){
@@ -1162,37 +1230,6 @@ function toggleSub(op,pv){
   }
   localStorage.setItem('tariff_sub_rules',JSON.stringify(state.sub.rules));
 }
-function buildSubConfig(existing){
-  const s=state.sub;
-  const rules=Object.keys(CARRIERS).map(op=>({op,provinces:(s.rules[op]||[]).slice()})).filter(r=>r.provinces.length);
-  // 保留仓库现有配置里的站点地址/note 等非本页管理的字段，避免同步时被清空。
-  const siteUrl=existing&&existing.site_url!==undefined?existing.site_url:(state.sub.siteUrl||'');
-  return {version:1,updated_at:new Date().toISOString().slice(0,19).replace('T',' '),rules,max_items:s.maxItems,site_url:siteUrl};
-}
-function subStatus(msg,type){
-  const el=$('subStatus');el.className='sub-status show '+(type||'info');el.textContent=msg;
-}
-function previewSubConfig(){
-  const cfg=buildSubConfig();
-  const ruleText=cfg.rules.map(r=>r.op+' → '+r.provinces.map(p=>p==='*'?'全部':p).join('、')).join('\n')||'（无关注项）';
-  subStatus('预览配置：\n'+ruleText+'\n每消息上限：'+cfg.max_items+' 条\n\n注意：预览不会写入仓库。','info');
-}
-async function syncSubConfig(){
-  const s=state.sub;
-  if(subCount()===0){subStatus('请先勾选至少一个关注的运营商/省份。','err');return;}
-  const rules=Object.keys(CARRIERS).map(op=>({op,provinces:(s.rules[op]||[]).slice()})).filter(r=>r.provinces.length);
-  const payload={rules,max_items:s.maxItems,site_url:(s.siteUrl||'').trim()};
-  const btn=$('subSync');btn.disabled=true;btn.textContent='同步中…';
-  subStatus('正在通过配置代理写入仓库…','info');
-  try{
-    const r=await workerCall(payload);
-    const okLine=(r.done&&r.done.length?r.done.join('、'):'无');
-    const errLine=(r.errors&&r.errors.length?'\n\n部分失败：\n'+r.errors.join('\n'):'');
-    subStatus('✓ 已同步到仓库：'+okLine+'。'+errLine+'\n重点组合由专项每 4 小时推送，其他省份由全量每日三次推送。\n当前记录 '+subCount()+' 项。',(r.errors&&r.errors.length)?'err':'ok');
-  }catch(e){subStatus('同步失败：'+e.message,'err');}
-  finally{btn.disabled=false;btn.textContent='同步关注规则';}
-}
-
 function renderAbout(){
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">关于本页</h3></div><div class="about">'+
     '<p>本页面展示各运营商「全网资费」及各省的公开资费资料。数据由 GitHub Actions 定时抓取运营商官网资费专区，比对变化后写入仓库 <code>data/</code> 目录，页面通过 <code>raw.githubusercontent.com</code> 直接读取——无需服务器、无需数据库。</p>'+
@@ -1201,7 +1238,7 @@ function renderAbout(){
     '<h3>省份切换</h3><p>「省份资费」页可自助选择省份；变化历史同样按省份标注。默认江西。</p>'+
     '<h3>更新方式</h3><p>各运营商由独立 workflow 每日三次（北京时间 00:05 / 08:05 / 16:05）抓取；重点省份专项每 4 小时一次（00/04/08/12/16/20 点，00:25～00:55 错峰），四川联通专项 00:15 起每 4 小时。也可在 Actions 页手动触发。抓取后统一字段、按稳定业务编号做 diff（价格/流量变动记为「修改」而非新增+下架），结果 commit 回仓库。页面刷新即读最新数据。</p>'+
     '<h3>重点保障</h3><p>江西、吉林、贵州、四川、山西全省（四家运营商），以及新疆电信为重点关注范围，各自独立专项抓取（不受全量超时影响）；四川联通另有独立专项。资费变化以「★重点」标签单独推送，其他省份以「其他·运营商」标签推送，两路互不重复。</p>'+
-    '<h3>变动提醒</h3><p>在「订阅推送」页勾选关注的运营商与省份（可多选、跨运营商），填入配置代理 Worker 地址和密码即可一键同步。GitHub PAT 与密码都只存在你部署的 Worker 服务端，页面不接触 PAT。推送分两路、各用一个钉钉群机器人：<b>★重点</b>写入 <code>DINGTALK_WEBHOOK_FOCUS</code>/<code>DINGTALK_SECRET_FOCUS</code>，<b>其他·X</b>写入 <code>DINGTALK_WEBHOOK_OTHER</code>/<code>DINGTALK_SECRET_OTHER</code>；也可只填通用 <code>DINGTALK_WEBHOOK</code>/<code>DINGTALK_SECRET</code> 让两路共用一群。命中新增、修改或下架时自动推送；遇钉钉限流会自动退避重试，相同变更不重复推送。</p>'+
+    '<h3>变动提醒</h3><p>在「订阅推送」页勾选关注的运营商与省份（可多选、跨运营商）；机器人配置在 ③ 输入密码点「读取配置」即可查看当前设置并直接修改、保存。GitHub PAT 与密码都只存在你部署的 Worker 服务端，页面不接触 PAT。推送分两路、各用一个钉钉群机器人：<b>★重点</b>写入 <code>DINGTALK_WEBHOOK_FOCUS</code>/<code>DINGTALK_SECRET_FOCUS</code>，<b>其他·X</b>写入 <code>DINGTALK_WEBHOOK_OTHER</code>/<code>DINGTALK_SECRET_OTHER</code>；也可只填通用 <code>DINGTALK_WEBHOOK</code>/<code>DINGTALK_SECRET</code> 让两路共用一群。命中新增、修改或下架时自动推送；遇钉钉限流会自动退避重试，相同变更不重复推送。</p>'+
     '<h3>数据口径</h3><p>以官网「适用地区」「适用范围」字段为准，仅供参考。分类维度为 <code>套餐 / 加装包 / 营销活动</code> × <code>个人 / 政企</code>。</p>'+
     '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、字段级检索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、钉钉订阅推送配置、深色模式。</p>'+
     '<h3>免责声明</h3><p>展示内容可能存在延迟或误差，办理业务请以营业厅 / 官方客服热线信息为准。</p>'+

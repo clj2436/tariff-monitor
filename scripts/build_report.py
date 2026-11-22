@@ -111,15 +111,6 @@ def _prepare(rows):
             "date": h.get("date") or "",
             "summary": change_summary(h),
             "changes": _change_items(h),
-            "current": {
-                "月费": _money(h.get("price")),
-                "通用流量": h.get("data") or "",
-                "语音": h.get("voice") or "",
-                "宽带": h.get("broadband") or "",
-                "资费说明": h.get("note") or "",
-                "完整说明": h.get("note_full") or "",
-            },
-            "details": h.get("details") or {},
         })
     return out
 
@@ -129,124 +120,89 @@ TPL = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{--bg:#f5f7fb;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--blue:#2563eb;--red:#dc2626;--green:#059669;--amber:#d97706}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-.wrap{max-width:940px;margin:0 auto;padding:18px}
-.hd{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border-radius:16px;padding:22px 20px;box-shadow:0 6px 20px rgba(37,99,235,.18)}
-.hd h1{margin:0 0 6px;font-size:20px}.hd .sub{opacity:.85;font-size:13px}
-.stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
-.stat{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:8px 14px;font-size:13px}
-.stat b{font-size:18px;margin-left:4px}
-.bar{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:16px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-input,select{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;background:#fff;color:var(--ink)}
-input[type=search]{flex:1;min-width:180px}
-.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 14px;cursor:pointer;font-size:13px}
-.chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-.tip{color:var(--muted);font-size:12px;margin:0 0 12px}
-.item{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
-.row{padding:13px 15px;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+:root{--bg:#f5f7fb;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--blue:#2563eb;--red:#dc2626;--green:#059669}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:800px;margin:0 auto;padding:20px 16px}
+h1{font-size:19px;margin:0 0 3px;font-weight:700}
+.sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.sub b{color:var(--ink)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.bar input{flex:1;min-width:150px;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;background:var(--card);color:var(--ink)}
+.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:3px}
+.tab{border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.tab.on{background:var(--blue);color:#fff}
+.cnt{color:var(--muted);font-size:12px;margin:0 0 10px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:7px;overflow:hidden}
+.row{padding:11px 14px;cursor:pointer;display:flex;gap:9px;align-items:flex-start}
 .row:hover{background:#f9fafb}
-.badge{font-size:11px;padding:2px 9px;border-radius:999px;font-weight:600;white-space:nowrap;margin-top:2px}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;margin-top:1px}
 .b-new{background:#dcfce7;color:var(--green)}.b-mod{background:#dbeafe;color:var(--blue)}.b-off{background:#fee2e2;color:var(--red)}
 .main{flex:1;min-width:0}
-.title{font-weight:600;font-size:15px;word-break:break-word}
-.meta{color:var(--muted);font-size:12px;margin-top:3px}
-.summary{color:#374151;font-size:13px;margin-top:6px;word-break:break-word}
-.arw{color:var(--muted);transition:transform .2s}.item.open .arw{transform:rotate(90deg)}
-.body{display:none;padding:0 15px 15px;border-top:1px dashed var(--line)}
+.title{font-weight:600;font-size:14px;word-break:break-word}
+.meta{color:var(--muted);font-size:11.5px;margin-top:2px}
+.summary{color:#374151;font-size:12.5px;margin-top:4px;word-break:break-word}
+.arw{color:var(--muted);font-size:11px;transition:transform .2s;margin-top:3px}.item.open .arw{transform:rotate(90deg)}
+.body{display:none;padding:0 14px 13px;border-top:1px dashed var(--line)}
 .item.open .body{display:block}
-table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
 th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top;word-break:break-word}
-th{background:#f3f4f6;width:96px;white-space:nowrap}
+th{background:#f3f4f6;width:92px;white-space:nowrap;color:var(--muted);font-weight:600}
 .before{color:var(--red);text-decoration:line-through;opacity:.75}.after{color:var(--green)}
-.empty{text-align:center;color:var(--muted);padding:40px 0}
-.foot{text-align:center;color:var(--muted);font-size:12px;margin:26px 0}
-.copy{margin-top:10px;font-size:12px;padding:5px 12px;border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer}
-@media(max-width:600px){.wrap{padding:12px}.hd h1{font-size:18px}.bar{padding:10px}input[type=search]{min-width:100%}}
+.nodiff{color:var(--muted);font-size:12.5px;padding:8px 0}
+.empty{text-align:center;color:var(--muted);padding:36px 0}
+.foot{text-align:center;color:var(--muted);font-size:11.5px;margin:22px 0}
+@media(max-width:600px){.wrap{padding:14px 10px}h1{font-size:17px}.bar input{min-width:100%}}
 </style></head><body><div class="wrap">
-<div class="hd"><h1>📋 本轮资费变动 · 全部明细</h1>
-<div class="sub">__SUBTITLE__</div>
-<div class="stats" id="stats"></div></div>
+<h1>本轮资费变动</h1>
+<div class="sub" id="sub"></div>
 <div class="bar">
-<input type="search" id="q" placeholder="搜索名称 / 编号 / 变更说明…">
-<select id="op"><option value="">全部运营商</option><option>中国移动</option><option>中国电信</option><option>中国联通</option><option>中国广电</option></select>
-<select id="kind"><option value="">全部类型</option><option>新增</option><option>修改</option><option>下架</option></select>
-<button class="chip" id="all">展开全部</button>
-</div>
-<p class="tip" id="tip"></p>
+<input type="search" id="q" placeholder="搜索名称 / 编号 / 变更内容">
+<div class="tabs">
+<button class="tab on" data-k="">全部</button><button class="tab" data-k="新增">新增</button><button class="tab" data-k="修改">修改</button><button class="tab" data-k="下架">下架</button>
+</div></div>
+<div class="cnt" id="cnt"></div>
 <div id="list"></div>
-<div class="foot">数据由 GitHub Actions 自动抓取生成 · 实际资费以运营商官网为准</div>
+<div class="foot">数据由 GitHub Actions 自动抓取 · 实际资费以运营商官网为准</div>
 </div>
 <script>
 const ROWS=__DATA__;
 const $=(s)=>document.querySelector(s);
 const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function stats(){
+let kind='';
+function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
-  $('#stats').innerHTML='<div class="stat">共<b>'+ROWS.length+'</b>条</div>'+
-    '<div class="stat">新增<b>'+(c.新增||0)+'</b></div><div class="stat">修改<b>'+(c.修改||0)+'</b></div>'+
-    '<div class="stat">下架<b>'+(c.下架||0)+'</b></div>';
+  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · __SUBTITLE__';
 }
 function detail(h){
-  let s='<table>';
-  // 前后对比：changes 由 Python 侧算好（中文标签 + 前值 + 后值），这里只展示
   const ch=h.changes||[];
-  if(ch.length){
-    s+='<tr><th>变更项</th><th style="width:auto">变更前 → 变更后</th></tr>';
-    ch.forEach(c=>{
-      s+='<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>';
-    });
-  }
-  s+='<tr><th>所属运营商</th><td>'+esc(h.op)+'</td></tr>';
-  s+='<tr><th>省份</th><td>'+esc(h.province)+'</td></tr>';
-  if(h.code) s+='<tr><th>资费编号</th><td>'+esc(h.code)+'</td></tr>';
-  s+='<tr><th>抓取日期</th><td>'+esc(h.date)+'</td></tr>';
-  s+='</table>';
-  const cur=h.current||{};
-  const extra=['月费','通用流量','语音','宽带','资费说明','完整说明'].filter(k=>cur[k]&&String(cur[k]).length>0);
-  if(extra.length){
-    s+='<table style="margin-top:10px"><tr><th colspan="2">变更后完整信息</th></tr>';
-    extra.forEach(k=>s+='<tr><th>'+esc(k)+'</th><td>'+esc(cur[k])+'</td></tr>');
-    s+='</table>';
-  }
-  const ds=Object.keys(h.details||{});
-  if(ds.length){
-    s+='<table style="margin-top:10px"><tr><th colspan="2">公示详情</th></tr>';
-    ds.forEach(k=>s+='<tr><th>'+esc(k)+'</th><td>'+esc(h.details[k])+'</td></tr>');
-    s+='</table>';
-  }
-  return s;
+  if(!ch.length) return '<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
+  return '<table>'+ch.map(c=>'<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>').join('')+'</table>';
 }
 function draw(){
-  const kw=$('#q').value.trim().toLowerCase(),op=$('#op').value,kind=$('#kind').value;
+  const kw=$('#q').value.trim().toLowerCase();
   const list=ROWS.filter(h=>{
-    if(op&&h.op!==op)return false;
     if(kind&&h.kind!==kind)return false;
     if(!kw)return true;
-    const hay=(h.name+' '+h.code+' '+h.summary+' '+h.province+' '+h.op).toLowerCase();
-    return kw.split(/\s+/).every(t=>hay.indexOf(t)>=0);
+    const hay=(h.name+' '+h.code+' '+h.summary+' '+h.province).toLowerCase();
+    return kw.split(/\\s+/).every(t=>hay.indexOf(t)>=0);
   });
-  $('#tip').textContent='当前显示 '+list.length+' / '+ROWS.length+' 条（点击条目展开前后对比）';
+  $('#cnt').textContent='显示 '+list.length+' / '+ROWS.length+' 条 · 点开一条看变更前后对比';
   if(!list.length){$('#list').innerHTML='<div class="empty">没有匹配的资费变化</div>';return;}
   $('#list').innerHTML=list.map(h=>{
-    const i=ROWS.indexOf(h);
     const c=h.kind==='新增'?'b-new':h.kind==='下架'?'b-off':'b-mod';
-    return '<div class="item" data-i="'+i+'"><div class="row"><span class="badge '+c+'">'+esc(h.kind)+'</span>'+
+    return '<div class="item"><div class="row"><span class="badge '+c+'">'+esc(h.kind)+'</span>'+
       '<div class="main"><div class="title">'+esc(h.name)+'</div>'+
-      '<div class="meta">'+esc(h.op)+' · '+esc(h.province)+(h.code?' · '+esc(h.code):'')+' · '+esc(h.date)+'</div>'+
+      '<div class="meta">'+esc(h.province)+(h.code?' · '+esc(h.code):'')+' · '+esc(h.date)+'</div>'+
       '<div class="summary">'+esc(h.summary)+'</div></div><span class="arw">▶</span></div>'+
       '<div class="body">'+detail(h)+'</div></div>';
   }).join('');
   document.querySelectorAll('.item .row').forEach(r=>r.addEventListener('click',()=>r.parentNode.classList.toggle('open')));
 }
-['q','op','kind'].forEach(id=>$('#'+id).addEventListener('input',draw));
-$('#all').addEventListener('click',()=>{
-  const items=document.querySelectorAll('.item');
-  const open=Array.prototype.some.call(items,i=>!i.classList.contains('open'));
-  items.forEach(i=>i.classList.toggle('open',open));
-  $('#all').textContent=open?'全部收起':'展开全部';
-});
-stats();draw();
+$('#q').addEventListener('input',draw);
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+  kind=b.dataset.k;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));draw();
+}));
+initSub();draw();
 </script></body></html>"""
 
 
@@ -255,7 +211,7 @@ def write_report(rows, out_path, tag="", subtitle=""):
     data = _prepare(rows)
     now = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
     title = "本轮资费变动 · 全部明细" + (" · %s" % tag if tag else "")
-    sub = subtitle or ("生成于 %s（北京时间）· 共 %d 条，点开条目看前后对比" % (now, len(data)))
+    sub = subtitle or ("生成于 %s（北京时间）" % now)
     # 内嵌 JSON：把 </script> 拆开，避免提前闭合脚本标签
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     page = (TPL.replace("__TITLE__", html.escape(title))

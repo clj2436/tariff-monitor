@@ -211,6 +211,81 @@ async function setConfig(repo, pat, patch) {
   return 'watch_config.json';
 }
 
+/* ---------- 配置回读：Secrets 不可回读真值，只能读元数据；Variables/规则文件可读真值 ---------- */
+const SNAPSHOT_KEY = 'tariff:botcfg';
+let _snapshotMem = {};                 // 未绑定 KV 时用 isolate 内存兜底（重启丢失，前端会提示）
+const SECRET_KEYS = [
+  'DINGTALK_WEBHOOK', 'DINGTALK_SECRET',
+  'DINGTALK_WEBHOOK_FOCUS', 'DINGTALK_SECRET_FOCUS',
+  'DINGTALK_WEBHOOK_OTHER', 'DINGTALK_SECRET_OTHER',
+];
+const _tail = v => String(v || '').slice(-8);
+
+async function readSnapshot(env) {
+  if (env.CONFIG_KV) {
+    try { const v = await env.CONFIG_KV.get(SNAPSHOT_KEY, 'json'); if (v) return v; } catch (e) {}
+  }
+  return _snapshotMem;
+}
+async function writeSnapshot(env, snap) {
+  if (env.CONFIG_KV) {
+    try { await env.CONFIG_KV.put(SNAPSHOT_KEY, JSON.stringify(snap)); return true; } catch (e) {}
+  }
+  _snapshotMem = snap;
+  return false;
+}
+async function saveSnapshot(env, input) {
+  const snap = await readSnapshot(env);
+  const map = {
+    webhook: 'DINGTALK_WEBHOOK', secret: 'DINGTALK_SECRET',
+    webhook_focus: 'DINGTALK_WEBHOOK_FOCUS', secret_focus: 'DINGTALK_SECRET_FOCUS',
+    webhook_other: 'DINGTALK_WEBHOOK_OTHER', secret_other: 'DINGTALK_SECRET_OTHER',
+  };
+  Object.keys(map).forEach(k => {
+    const v = String(input[k] || '').trim();
+    if (v) snap[map[k]] = { tail: _tail(v), at: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+  });
+  return writeSnapshot(env, snap);
+}
+async function getVariable(repo, pat, name) {
+  const r = await gh(repo, pat, '/actions/variables/' + encodeURIComponent(name));
+  return r.res.ok && r.data ? String(r.data.value || '') : '';
+}
+async function readWatchConfig(repo, pat) {
+  const r = await gh(repo, pat, '/contents/' + CONFIG_PATH);
+  if (!r.res.ok || !r.data || !r.data.content) return {};
+  try {
+    const raw = atob(r.data.content.replace(/\s/g, ''));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, c => c.charCodeAt(0))));
+  } catch (e) { return {}; }
+}
+async function readConfig(repo, pat, env) {
+  const [secretsRes, channels, siteUrlVar, cfg] = await Promise.all([
+    gh(repo, pat, '/actions/secrets'),
+    getVariable(repo, pat, 'NOTIFY_CHANNELS'),
+    getVariable(repo, pat, 'SITE_URL'),
+    readWatchConfig(repo, pat),
+  ]);
+  const meta = {};
+  if (secretsRes.res.ok && secretsRes.data && Array.isArray(secretsRes.data.secrets)) {
+    secretsRes.data.secrets.forEach(s => { meta[s.name] = String(s.updated_at || '').replace('T', ' ').slice(0, 16); });
+  }
+  const snap = await readSnapshot(env);
+  const bots = {};
+  SECRET_KEYS.forEach(n => {
+    bots[n] = { set: !!meta[n], updated: meta[n] || '', tail: (snap[n] && snap[n].tail) || '' };
+  });
+  return {
+    bots,
+    channels: channels || 'dingtalk',
+    site_url: siteUrlVar || cfg.site_url || '',
+    max_items: Number.isFinite(cfg.max_items) ? cfg.max_items : 30,
+    rules: Array.isArray(cfg.rules) ? cfg.rules : [],
+    updated_at: cfg.updated_at || '',
+    snapshot_persistent: !!(env.CONFIG_KV),
+  };
+}
+
 // 白名单：只接受已知字段，逐个校验类型
 function sanitize(input) {
   const out = { secrets: {}, variables: {}, config: {} };
@@ -278,6 +353,13 @@ async function handle(request, env) {
   const denied = await checkPassword(request, env, input.password, cors);
   if (denied) return denied;
 
+  if (input.action === 'read') {
+    let config;
+    try { config = await readConfig(env.REPO, env.GITHUB_PAT, env); }
+    catch (e) { return json({ ok: false, error: '读取配置失败：' + e.message }, 500, cors); }
+    return json({ ok: true, config }, 200, cors);
+  }
+
   let job;
   try { job = sanitize(input); } catch (e) { return json({ ok: false, error: e.message }, 400, cors); }
 
@@ -287,6 +369,7 @@ async function handle(request, env) {
   for (const [name, value] of Object.entries(job.secrets)) await run(name, () => setSecret(env.REPO, env.GITHUB_PAT, name, value));
   for (const [name, value] of Object.entries(job.variables)) await run(name, () => setVariable(env.REPO, env.GITHUB_PAT, name, value));
   if (Object.keys(job.config).length) await run('watch_config.json', () => setConfig(env.REPO, env.GITHUB_PAT, job.config));
+  if (done.length) await saveSnapshot(env, input).catch(() => {});
 
   if (!done.length && !errors.length) return json({ ok: false, error: '没有需要保存的内容（留空表示不修改）' }, 400, cors);
   return json({ ok: errors.length === 0, done, errors }, errors.length ? 207 : 200, cors);
