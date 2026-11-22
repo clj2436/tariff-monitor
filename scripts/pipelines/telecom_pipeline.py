@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """中国电信资费监控管线（可在 GitHub Actions 直接运行，路径全部相对脚本目录）
 
-职责：抓取电信「全国 + 21 省（含新疆 600303）」资费（对齐联通站 JSON schema）
+职责：抓取电信「全国 + 31 省」资费（对齐联通站 JSON schema）
       → 与上一版数据 diff → 输出站点数据目录（{scope}.json + latest.json + history.json）。
-说明：省份代码经实测 tariffSection.do 接口得出；其余 10 省（京津冀晋蒙辽吉黑鲁豫）
-      接口返回空板块（受瑞数 WAF 限制），暂无法自动化，预留 SCOPES 可扩展。
+说明：省份代码来自官方资费专区前端 Index-*.js 内的 provinceCode 映射表（2026-11 提取），
+      共 31 省 + 全国。此前京津冀晋蒙辽吉黑鲁豫 10 省误用行政区划码（如北京 110000）
+      导致返回空板块；改用正确的 609xxx 段后已实测可正常抓取，并非 WAF 拦截。
 用法:
   python3 telecom_pipeline.py --prev-dir PATH --out-dir PATH
 """
@@ -21,11 +22,21 @@ KEY = b"telecom_wap_2018"
 UA = "Mozilla/5.0 (Linux; Android 13; SM-S9110) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
 API = "https://www.189.cn/wapportalweb/wapportalweb/tariffSection.do"
 
-# 电信资费专区省份代码表（2026-11 实测 tariffSection.do 接口）
-# 编码规则：6001xx 华东/华南、6002xx 华中/西南、6003xx 华东/西北、6004xx 西北。
-# 共 21 省 + 全国可用；其余 10 省（京津冀晋蒙辽吉黑鲁豫）接口返回空板块（受瑞数 WAF 限制）。
+# 电信资费专区省份代码表（来自官方前端 Index-*.js 的 provinceCode 映射，2026-11 提取）
+# 6001xx 华东/华南、6002xx 华中/西南、6003xx 华东/西北、6004xx 西北、609xxx 华北/东北。
+# 共 31 省 + 全国，全部实测可返回板块；此前缺失的 10 省用行政区划码才导致空板块。
 SCOPES = {
     "quanguo":    {"prov": "1000000037", "name": "全国"},
+    "beijing":    {"prov": "609001", "name": "北京"},
+    "tianjin":    {"prov": "609902", "name": "天津"},
+    "hebei":      {"prov": "609906", "name": "河北"},
+    "shanxi":     {"prov": "609907", "name": "山西"},
+    "neimenggu":  {"prov": "609908", "name": "内蒙古"},
+    "liaoning":   {"prov": "609905", "name": "辽宁"},
+    "jilin":      {"prov": "609909", "name": "吉林"},
+    "heilongjiang":{"prov": "609910", "name": "黑龙江"},
+    "shandong":   {"prov": "609903", "name": "山东"},
+    "henan":      {"prov": "609904", "name": "河南"},
     "guangdong":  {"prov": "600101", "name": "广东"},
     "shanghai":   {"prov": "600102", "name": "上海"},
     "jiangsu":    {"prov": "600103", "name": "江苏"},
