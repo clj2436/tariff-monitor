@@ -1014,10 +1014,15 @@ function workerUrl(){return (state.sub.workerUrl||'').trim().replace(/\/$/,'');}
 async function workerCall(payload){
   const base=workerUrl();
   if(!base) throw new Error('请先填写配置代理 Worker 地址');
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),15000);
   let res;
   try{
-    res=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,password:state.sub.workerPwd})});
-  }catch(e){throw new Error('无法连接 Worker：'+e.message+'（检查地址是否正确、是否已部署）');}
+    res=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,password:state.sub.workerPwd}),signal:ctrl.signal});
+  }catch(e){
+    if(e.name==='AbortError') throw new Error('连接 Worker 超时（15 秒）。若是 workers.dev 在国内无法访问，请给 Worker 绑定自定义域名（如 config.zf.chenlijun.eu.org），再把 Worker 地址改成该域名。');
+    throw new Error('无法连接 Worker：'+e.message+'（检查地址是否正确、是否已部署）');
+  }finally{clearTimeout(timer);}
   let j=null;try{j=await res.json();}catch(e){}
   if(!res.ok) throw new Error((j&&j.error)||('Worker 返回 HTTP '+res.status));
   return j;
