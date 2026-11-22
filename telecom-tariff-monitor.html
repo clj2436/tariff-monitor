@@ -163,6 +163,21 @@ body.dark .sub-status.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
 .tl-title{font-size:13px;font-weight:650}
 .tl-meta{color:var(--muted);font-size:11.5px;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .tl-change{font-size:12px;margin-top:5px}
+/* 变化历史：同一资费编号折叠为一组 */
+.hist-group{border:1px solid var(--border);border-radius:9px;margin-bottom:9px;background:var(--card);overflow:hidden}
+.hist-head{display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;user-select:none;transition:.12s}
+.hist-head:hover{background:var(--card2)}
+.hist-arrow{color:var(--muted);font-size:11px;flex:none;transition:transform .15s}
+.hist-group.open .hist-arrow{transform:rotate(90deg)}
+.hist-main{flex:1;min-width:0}
+.hist-name{font-size:13px;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hist-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--muted);background:var(--card2);border:1px solid var(--border);padding:1px 6px;border-radius:4px}
+.hist-summary{color:var(--muted);font-size:11.5px;margin-top:3px}
+.hist-count{font-size:11px;color:var(--blue);background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:2px 9px;white-space:nowrap;flex:none}
+.hist-body{display:none;border-top:1px dashed var(--border);padding:2px 14px 6px 30px;background:var(--card2)}
+.hist-group.open .hist-body{display:block}
+.hist-body .tl-item{padding:9px 0}
+.hist-body .tl-dot{box-shadow:none;width:8px;height:8px}
 
 /* 关于 */
 .about{padding:18px 20px;font-size:13px;color:var(--muted);line-height:1.9}
@@ -639,22 +654,42 @@ function renderFieldSearch(){
 }
 function renderHistory(){
   let rows=HISTORY.filter(h=>h.op===state.op);
-  $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">资费变更时间线 <span class="pill">'+CARRIERS[state.op].name+'</span></h3>'+
-    '<span class="card-desc">自动定时抓取比对，有变化即刷新 · 按省份标注</span></div>'+
+  $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">资费变更历史 <span class="pill">'+CARRIERS[state.op].name+'</span></h3>'+
+    '<span class="card-desc">同一资费按编号合并 · 点开可看它的全部改动</span></div>'+
     '<div class="filters"><select id="hProv"><option value="all">全部省份</option>'+PROVINCES.slice(1).map(p=>'<option'+(state.prov===p?' selected':'')+'>'+p+'</option>').join('')+'</select><button class="btn" id="hReload">重新加载</button><span class="filter-info" id="hCount"></span></div>'+
     '<div class="timeline" id="timeline"></div></div>';
   const draw=()=>{
     const pv=$('hProv').value;
     const list=pv==='all'?rows:rows.filter(h=>h.province===pv);
-    $('hCount').textContent='共 '+list.length+' 条变更记录';
-    $('timeline').innerHTML=list.length?list.map(h=>{
-      const cls=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
-      const detail=changeText(h);
-      return '<div class="tl-item"><span class="tl-dot" style="--oc:'+CARRIERS[h.op].color+'"></span><div class="tl-body">'+
-        '<div class="tl-title">'+h.name+' <span class="chg '+cls+'">'+h.kind+'</span></div>'+
-        '<div class="tl-meta"><span>'+opBadge(h.op)+'</span><span>'+h.province+'</span><span>'+h.date+'</span></div>'+
-        '<div class="tl-change muted">'+detail+'</div></div></div>';
-    }).join(''):'<div class="empty">该省份暂无变更记录。</div>';
+    // 按资费编号分组（编号是「同一个资费」的判定依据）
+    const groups={};
+    list.forEach(h=>{const k=histKey(h);(groups[k]=groups[k]||[]).push(h);});
+    Object.values(groups).forEach(a=>a.sort((x,y)=>y.date.localeCompare(x.date)));
+    const keys=Object.keys(groups).sort((a,b)=>groups[b][0].date.localeCompare(groups[a][0].date));
+    $('hCount').textContent='共 '+keys.length+' 个资费 · '+list.length+' 条改动';
+    if(!keys.length){$('timeline').innerHTML='<div class="empty">该省份暂无变更记录。</div>';return;}
+    $('timeline').innerHTML=keys.map((k,gi)=>{
+      const arr=groups[k],latest=arr[0],color=CARRIERS[latest.op].color;
+      const cls=latest.kind==='新增'?'new':latest.kind==='下架'?'off':'mod';
+      const first=arr[arr.length-1].date, span=first===latest.date?latest.date:first+' ~ '+latest.date;
+      const timeline=arr.map(h=>{
+        const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+        return '<div class="tl-item"><span class="tl-dot" style="--oc:'+color+'"></span><div class="tl-body">'+
+          '<div class="tl-title"><span class="chg '+c+'">'+h.kind+'</span> <span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span></div>'+
+          '<div class="tl-change muted">'+changeText(h)+'</div></div></div>';
+      }).join('');
+      return '<div class="hist-group'+(gi===0?' open':'')+'" data-k="'+gi+'">'+
+        '<div class="hist-head"><span class="hist-arrow">▶</span>'+
+        '<div class="hist-main"><div class="hist-name">'+latest.name+' <span class="chg '+cls+'">'+latest.kind+'</span>'+
+        (latest.code?'<span class="hist-code">'+latest.code+'</span>':'')+'</div>'+
+        '<div class="hist-summary">'+latest.province+' · '+span+' · 最近：'+changeText(latest)+'</div></div>'+
+        '<span class="hist-count">'+arr.length+' 次改动</span></div>'+
+        '<div class="hist-body">'+timeline+'</div></div>';
+    }).join('');
+    // 点标题展开/收起（避免整组点击时误触内部选中）
+    Array.prototype.forEach.call($('timeline').querySelectorAll('.hist-head'),el=>{
+      el.addEventListener('click',()=>el.parentNode.classList.toggle('open'));
+    });
   };
   $('hProv').addEventListener('change',draw);
   $('hReload').addEventListener('click',async()=>{
@@ -1033,9 +1068,15 @@ function adaptHistory(raw){
     date: (h.date||'').slice(0,10) || '2026-01-01',
     price: Number(h.price)||0,
     data: h.data, voice: h.voice, broadband: h.broadband,
+    code: h.code || '',
     details: h.details && typeof h.details === 'object' ? h.details : null,
     old: h.old && typeof h.old === 'object' ? h.old : null
   })).sort((a,b)=>b.date.localeCompare(a.date));
+}
+// 判断「是否同一资费」优先用编号；无编号才退回 运营商+名称（部分运营商不公示编号）
+function histKey(h){
+  if(h.code) return 'c:'+h.op+'|'+h.code;              // 有编号：编号即身份，改名也归同一资费
+  return 'n:'+h.op+'|'+(h.province||'')+'|'+(h.name||''); // 无编号：退回 运营商+省份+名称
 }
 
 /* ---------- 数据加载：本地缓存 + 增量校验 + 超时保护 ---------- */

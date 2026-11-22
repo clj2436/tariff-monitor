@@ -152,8 +152,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: 检出仓库
+      # 关键：scrape 片期间已多次 push live 文件，默认检出（触发时的 commit）
+      # 会落后，导致最后提交 non-fast-forward 被拒。scrape 全部完成后再检出
+      # 最新 main，从源头消除落后；下方提交步骤仍保留 rebase 重试作兜底。
+      - name: 检出仓库（最新 main）
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: 设置 Python
         uses: actions/setup-python@v5
