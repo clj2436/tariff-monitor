@@ -1,0 +1,14 @@
+[
+  {
+    "time": "2026-11-22 14:05:54",
+    "tag": "",
+    "status": "noconfig",
+    "count": 1835,
+    "detail": "未配置任何通知通道",
+    "channels": [],
+    "bot": "focus",
+    "dingtalk": false,
+    "dingtalk_focus": false,
+    "dingtalk_other": false
+  }
+]
