@@ -283,6 +283,7 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;lin
     <div class="tools">
       <span class="tag-demo" id="dataTag">加载中…</span>
       <span class="sync" id="sync">--</span>
+      <button class="btn" id="reloadBtn" title="清除本地缓存并重新拉取全部数据">↻ 刷新数据</button>
       <button class="btn" id="checkBtn">检测资费</button>
       <button class="btn" id="switchBtn">移动 · 江西 ▾</button>
       <button class="btn" id="themeBtn">深色</button>
@@ -1181,6 +1182,18 @@ $('switchBtn').addEventListener('click',openSwitchModal);
 $('provSearch2').addEventListener('input',e=>renderProvGrid(e.target.value,'provGrid2','provSearch2'));
 $('switchDone').addEventListener('click',()=>{saveSel();updateSwitchLabel();render();$('carrierModal').classList.add('hidden');toast('已切换到'+CARRIERS[state.op].name+' · '+state.prov);});
 $('themeBtn').addEventListener('click',()=>{state.dark=!state.dark;localStorage.setItem('tariff_dark',state.dark?'1':'0');applyTheme();});
+$('reloadBtn').addEventListener('click',async()=>{
+  const btn=$('reloadBtn');const old=btn.textContent;btn.textContent='刷新中…';btn.disabled=true;
+  clearCache();opState={};failedOps.clear();
+  if(opTimer){clearInterval(opTimer);opTimer=null;} // 停止旧轮询，加载完成后重建
+  try{
+    const changed=await probeOps(true);
+    const n=await refreshOps(changed);
+    if(n){writeCache();applyData('真实数据');toast('已重新拉取全部数据');}
+    else{toast('线上数据暂时无法加载，请稍后重试');}
+  }catch(e){toast('刷新失败：'+e.message);}
+  finally{btn.textContent=old;btn.disabled=false;startPolling();}
+});
 $('checkBtn').addEventListener('click',async()=>{
   const real=$('dataTag').textContent==='真实数据';
   if(!real){
@@ -1261,11 +1274,15 @@ function histKey(h){
  * 网页并行读 5 个 latest.json（每个约 200B）：哪个源签名变了才拉那份 items/history，
  * 合并时同一资费按「运营商+编号+省份+名称」去重，专项源优先。任一路慢/失败都不影响其他源。
  */
-const CACHE_KEY='tariff_cache_v3';
+// 缓存版本升级：v4 强制作废旧快照（拆分前"只有新疆1008条"那批缓存）。
+// 缓存带 savedAt：超过 CACHE_TTL 视为过期；结构缺任一数据源也视为不完整，均触发全量校验。
+const CACHE_KEY='tariff_cache_v4';
+const CACHE_TTL=6*3600*1000; // 6 小时
 const OPS=['mobile','telecom','unicom','gb','unicom-sichuan'];
 function opName(op){return op==='unicom-sichuan'?'四川联通专项':(CARRIERS[op]?CARRIERS[op].name:op);}
 let opState={};          // op -> {sig,meta,items,hist}  各家原始数据
 let opTimer=null;
+let failedOps=new Set(); // 探测/拉取失败的数据源，下一轮优先重试，避免永久卡旧缓存
 let combinedMeta=null;
 // 带超时的 fetch，避免网络异常时无限卡在"正在加载"
 function fetchJSON(url,ms){
@@ -1281,13 +1298,25 @@ function opSig(meta){return String(meta&&meta.timestamp||'')+'|'+(meta&&meta.cou
 function readCache(){
   try{
     const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
-    if(c&&c.ops&&typeof c.ops==='object') return c.ops;
+    if(!c||!c.ops||typeof c.ops!=='object') return null;
+    // 过期缓存不使用（避免长期停留在旧快照）
+    if(!c.savedAt||Date.now()-c.savedAt>CACHE_TTL) return null;
+    // 结构不完整（缺少任一数据源，如拆分前无 gb/unicom-sichuan）不使用
+    if(!OPS.every(op=>c.ops[op]&&Array.isArray(c.ops[op].items))) return null;
+    return c.ops;
   }catch(e){}
   return null;
 }
 function writeCache(){
-  try{localStorage.setItem(CACHE_KEY,JSON.stringify({ops:opState}));}
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({v:4,savedAt:Date.now(),ops:opState}));}
   catch(e){} // 超出配额时跳过缓存，不影响功能
+}
+function clearCache(){
+  try{localStorage.removeItem(CACHE_KEY);}catch(e){}
+  // 同时清掉旧版 key，彻底移除历史脏快照
+  for(const k of ['tariff_cache','tariff_cache_v2','tariff_cache_v3']){
+    try{localStorage.removeItem(k);}catch(e){}
+  }
 }
 // 把 4 家 + 四川联通专项原始数据合并成页面渲染所需的 meta/items/hist
 function combineOps(){
@@ -1337,18 +1366,22 @@ function applyData(label){
   $('sync').textContent=(label&&label!=='真实数据'?'实时 · ':'更新于 ')+(meta.date||'--');
   render();
 }
-// 并行探测各数据源 latest.json：返回有变化的源列表（首次加载全部视为变化）
-async function probeOps(firstLoad){
+// 并行探测各数据源 latest.json：返回有变化的源列表。
+// force=true 时忽略缓存签名，把所有探测成功的源都当作需要重新核对（用于首次加载/强制刷新）。
+// 探测失败的源记入 failedOps，由轮询持续重试，避免某次网络抖动导致永久停留在旧缓存。
+async function probeOps(force){
   const metas=await Promise.all(OPS.map(async op=>{
     try{return await fetchJSON(DATA_BASE+'ops/'+op+'/latest.json',7000);}
     catch(e){return null;}
   }));
   const changed=[];
+  const ok=new Set();
   OPS.forEach((op,i)=>{
     const m=metas[i];
-    if(!m||typeof m.count!=='number') return;
+    if(!m||typeof m.count!=='number'){ failedOps.add(op); return; }
+    ok.add(op); failedOps.delete(op);
     const sig=opSig(m);
-    if(firstLoad||!opState[op]||opState[op].sig!==sig) changed.push([op,m,sig]);
+    if(force||!opState[op]||opState[op].sig!==sig) changed.push([op,m,sig]);
   });
   return changed;
 }
@@ -1375,6 +1408,12 @@ function startPolling(){
   opTimer=setInterval(async()=>{
     try{
       const changed=await probeOps(false);
+      // 之前失败的源即使签名相同也重新拉一次，确保从旧快照中恢复
+      for(const op of failedOps){
+        try{const m=await fetchJSON(DATA_BASE+'ops/'+op+'/latest.json',7000);}
+        catch(e){continue;}
+        if(m&&typeof m.count==='number'&&!changed.some(x=>x[0]===op)) changed.push([op,m,opSig(m)]);
+      }
       if(changed.length){
         const n=await refreshOps(changed);
         if(n){writeCache();applyData('实时抓取中');}
@@ -1384,17 +1423,15 @@ function startPolling(){
 }
 async function loadData(){
   const cached=readCache();
-  // 1) 命中本地缓存：先即时渲染，页面秒开
+  // 1) 命中本地缓存：先即时渲染，页面秒开（但下面仍强制核对线上，绝不把缓存当最终状态）
   if(cached){opState=cached;applyData('本地缓存');}
-  // 2) 并行探测各数据源 latest.json，只拉变化源的完整数据
+  // 2) 始终 force 探测：即使签名"看起来没变"也重新拉取，杜绝旧快照卡住。
+  //    firstLoad 才允许在全部探测失败时回退示例数据。
   let changed=[];
   try{
-    changed=await probeOps(!cached);
+    changed=await probeOps(true);
   }catch(e){}
-  if(!changed.length&&cached){
-    // 所有数据源签名都没变：缓存即最新
-    const tag=$('dataTag');tag.textContent='真实数据';tag.style.background='#dcfce7';tag.style.color='#166534';
-  }else if(changed.length){
+  if(changed.length){
     const n=await refreshOps(changed);
     if(n){writeCache();applyData('真实数据');}
     else if(!cached){
@@ -1403,10 +1440,14 @@ async function loadData(){
       return;
     }
   }else if(!cached){
-    // 无任何线上数据
+    // 无任何线上数据，也无缓存
     const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
     $('notice').textContent='当前展示内置示例数据（未能加载线上数据）。实际资费以运营商官网与营业厅公示为准。';
     return;
+  }
+  // 有缓存但本轮全部探测失败：保留缓存数据，但明确标注"离线快照"，不谎称最新
+  if(cached&&!changed.length){
+    const tag=$('dataTag');tag.textContent='离线缓存';tag.style.background='#fef3c7';tag.style.color='#92400e';
   }
   startPolling();
 }
