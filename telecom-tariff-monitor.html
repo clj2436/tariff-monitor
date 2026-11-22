@@ -498,19 +498,30 @@ function TODAY(){
   const d=new Date(Date.now()+8*3600*1000);
   return d.toISOString().slice(0,10);
 }
-// 变更字段中文名：changeText 摘要与历史详情窗口共用
+// 变更字段中文名：changeText 摘要与历史详情窗口共用。
+// 同时收录公示接口的原始英文键，保证任何界面都不出现英文字段名。
 const CHANGE_LABELS={price:'月费',data:'通用流量',voice:'语音',broadband:'宽带',note:'资费说明',note_full:'完整说明',
   scope:'适用范围',region:'适用地区',channel:'销售渠道',onDate:'上架日期',offDate:'下架日期',
   validPeriod:'有效期',inNetReq:'在网要求',unsubscribe:'退订方式',responsibility:'违约责任',
-  sms:'短信',orient:'定向流量',regionData:'省内流量',iptv:'IPTV',rights:'权益',
-  service:'其他服务内容',extraFees:'额外费用',otherNotes:'其他说明'};
+  sms:'短信',orient:'定向流量',regionData:'省内流量',iptv:'移动高清',rights:'权益',
+  service:'其他服务内容',extraFees:'超出资费说明',otherNotes:'其他说明',
+  // 官方原始英文字段键 → 中文
+  useScope:'适用范围',applicableArea:'适用地区',useArea:'适用地区',saleChnl:'销售渠道',
+  onlinePeriod:'上线日期',duration:'在网要求',orientTraffic:'定向流量',regionTraffic:'省内流量',
+  serviceContent:'其他服务内容',feeDesc:'资费说明',feesStandard:'资费标准',feeUnit:'计费单位',
+  reportNo:'备案编号',codeType:'编号类型',firstLevel:'一级分类',secondLevel:'二级分类',
+  firstLevelType:'一级类型',secondLevelType:'二级类型',minute:'通话时长',commonData:'通用流量',
+  dataUnit:'流量单位',broadBand:'宽带',brandwidth:'宽带',call:'语音通话',offlineDate:'下架日期'};
+function changeLabel(k){
+  const s=String(k||''),base=s.split('.').pop();
+  return CHANGE_LABELS[s]||CHANGE_LABELS[base]||'补充信息';
+}
 function changeFieldVal(obj,k){return k.indexOf('details.')===0?(obj.details||{})[k.slice(8)]:obj[k];}
 function changeText(h){
   if(h.kind==='新增') return '新上架 · '+money(h.price)+'/月';
   if(h.kind==='下架') return '已下架 · 原 '+money(h.price)+'/月';
   const o=h.old||{},keys=Object.keys(o);
   if(!keys.length) return '资费详情有调整，详见运营商官网。';
-  const L=CHANGE_LABELS;
   const val=changeFieldVal;
   const short=v=>{const s=String(v==null?'':v).replace(/\s+/g,' ');return s.length<=44?s:s.slice(0,44)+'…';};
   // note/note_full 是其他详情字段的汇总文本，已有具体字段变化时不重复展示
@@ -521,7 +532,7 @@ function changeText(h){
     const a=o[k],b=val(h,k);
     if(a==null&&b==null) return;
     if(String(a==null?'':a)===String(b==null?'':b)) return;
-    const label=L[k]||L[k.split('.').pop()]||k;
+    const label=changeLabel(k);
     const fmt=k==='price'?(v=>money(Number(v)||0)):(v=>short(v==null?'—':v));
     parts.push(label+' '+fmt(a)+' → '+fmt(b));
   });
@@ -529,7 +540,7 @@ function changeText(h){
 }
 
 function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show'),2000);}
-function opBadge(op){return '<span class="op-badge" style="--oc:'+CARRIERS[op].color+'"><i></i>'+CARRIERS[op].name+'</span>';}
+function opBadge(op){const c=CARRIERS[op]?CARRIERS[op].color:'#6b7280';return '<span class="op-badge" style="--oc:'+c+'"><i></i>'+opName(op)+'</span>';}
 function applyTheme(){document.body.classList.toggle('dark',state.dark);$('themeBtn').textContent=state.dark?'浅色':'深色';}
 
 /* ---------- 导航 ---------- */
@@ -1349,13 +1360,8 @@ function fieldVal(d,key){
   for(const a of (aliases[key]||[key])) if(e[a]) return e[a];
   return '';
 }
-function openDetail(id){
-  const d=DATA.find(x=>x.id===id);if(!d)return;
-  detailId=id;
-  $('dTitle').textContent=d.name;
-  const codeTag=d.code?'<span class="pill">业务编号 <span class="note-code">'+escHtml(d.code)+'</span></span>':'';
-  $('dMeta').innerHTML=opBadge(d.op)+'<span class="pill">'+escHtml(d.source||'')+'</span>'+codeTag+'<span class="pill">'+d.type+' · '+d.owner+'</span>';
-  // 与官方公示专区一致的呈现：基础表格 + 资源表格 + 业务规则列表
+// 完整资费展示：省份资费详情与变化历史详情共用，字段内容与官方公示专区一致
+function renderPublicDetail(d){
   const resRows=[['国内通话',d.voice],['国内通用流量',d.data],['定向流量',fieldVal(d,'orient')],['短信',fieldVal(d,'sms')]];
   if(d.broadband&&d.broadband!=='—') resRows.push(['宽带',d.broadband]);
   if(fieldVal(d,'iptv')) resRows.push(['移动高清',fieldVal(d,'iptv')]);
@@ -1369,20 +1375,33 @@ function openDetail(id){
   const ruleList='<ul class="pub-list">'+rules.map(([k,v])=>'<li><b>'+k+'：</b>'+escHtml(v||'无')+'</li>').join('')+'</ul>';
   const service=fieldVal(d,'service')||d.note||'';
   const svcList=service?'<ul class="pub-list">'+splitNote(service).map(p=>'<li>'+decoratePara(p)+'</li>').join('')+'</ul>':'<div class="muted">暂无其他服务内容说明。</div>';
+  // 兜底：官方新增、暂无固定中文名的字段，按序显示为「补充信息 N」，不裸露英文键
+  const known=new Set(['scope','region','channel','onDate','offDate','validPeriod','inNetReq','unsubscribe',
+    'responsibility','sms','orient','regionData','iptv','rights','service','extraFees','otherNotes']);
+  const left=Object.keys(d.extra||{}).filter(k=>!known.has(k)&&!CHANGE_LABELS[k]);
+  const otherList=left.length?'<ul class="pub-list">'+left.map((k,i)=>'<li><b>补充信息 '+(i+1)+'：</b>'+escHtml(String(d.extra[k]))+'</li>').join('')+'</ul>':'';
   const extraBits=[['权益',fieldVal(d,'rights')],['超出资费说明',fieldVal(d,'extraFees')],['其他说明',fieldVal(d,'otherNotes')]].filter(x=>x[1]);
-  const extraList=extraBits.length?'<ul class="pub-list">'+extraBits.map(([k,v])=>'<li><b>'+k+'：</b>'+escHtml(v)+'</li>').join('')+'</ul>':'';
-  $('dPublic').innerHTML=
-    '<div class="pub-group-title">基础信息</div>'+
+  const extraList=(extraBits.length||otherList)?'<ul class="pub-list">'+extraBits.map(([k,v])=>'<li><b>'+k+'：</b>'+escHtml(v)+'</li>').join('')+otherList.replace(/^<ul class="pub-list">|<\/ul>$/g,'')+'</ul>':'';
+  return '<div class="pub-group-title">基础信息</div>'+
     '<table class="pub-table">'+
       '<tr><td class="k">方案编号</td><td>'+escHtml(d.code||'—')+'</td></tr>'+
-      '<tr><td class="k">资费类型</td><td>'+escHtml(d.type)+'</td></tr>'+
+      '<tr><td class="k">资费类型</td><td>'+escHtml(d.type||'—')+'</td></tr>'+
+      '<tr><td class="k">归属</td><td>'+escHtml(d.owner||'—')+'</td></tr>'+
       '<tr><td class="k">资费标准</td><td>'+money(d.price)+'/月</td></tr>'+
     '</table>'+
     '<div class="pub-group-title">资费内容</div>'+resTable+
     '<div class="pub-group-title">业务规则</div>'+ruleList+
     (extraList?'<div class="pub-group-title">补充信息</div>'+extraList:'')+
     '<div class="pub-group-title">其他服务内容</div>'+svcList+
-    '<div class="muted" style="padding:10px 2px;font-size:11px">数据来源：'+escHtml(d.source||'')+' · 采集日期 '+escHtml(d.date)+'</div>';
+    '<div class="muted" style="padding:10px 2px;font-size:11px">数据来源：'+escHtml(d.source||'')+' · 采集日期 '+escHtml(d.date||'')+'</div>';
+}
+function openDetail(id){
+  const d=DATA.find(x=>x.id===id);if(!d)return;
+  detailId=id;
+  $('dTitle').textContent=d.name;
+  const codeTag=d.code?'<span class="pill">业务编号 <span class="note-code">'+escHtml(d.code)+'</span></span>':'';
+  $('dMeta').innerHTML=opBadge(d.op)+'<span class="pill">'+escHtml(d.source||'')+'</span>'+codeTag+'<span class="pill">'+escHtml(d.type||'—')+' · '+escHtml(d.owner||'—')+'</span>';
+  $('dPublic').innerHTML=renderPublicDetail(d);
   $('dFav').textContent=(state.favs.has(id)?'★ 已收藏':'☆ 收藏');
   $('dFav').classList.toggle('on',state.favs.has(id));
   openModal('detailModal');
@@ -1410,7 +1429,7 @@ function openHistoryDetail(idx){
   if(keys.length){
     changeTable='<table class="pub-table diff-table"><thead><tr><th>变更字段</th><th>变更前</th><th>变更后</th></tr></thead><tbody>'+
       keys.map(k=>{
-        const label=CHANGE_LABELS[k]||CHANGE_LABELS[k.split('.').pop()]||k;
+        const label=changeLabel(k);
         const before=diffVal(old[k],k), after=diffVal(changeFieldVal(h,k),k);
         return '<tr><td class="k">'+escHtml(label)+'</td><td class="diff-before">'+escHtml(before)+'</td><td class="diff-after">'+escHtml(after)+'</td></tr>';
       }).join('')+'</tbody></table>';
@@ -1421,14 +1440,11 @@ function openHistoryDetail(idx){
   }else{
     changeTable='<div class="muted">未提供逐字段对比，完整详情见下方。</div>';
   }
-  const det=h.details&&typeof h.details==='object'?h.details:null;
-  const detKeys=det?Object.keys(det).filter(k=>det[k]!=null&&det[k]!==''):[];
-  const detList=detKeys.length?'<ul class="pub-list">'+detKeys.map(k=>'<li><b>'+escHtml(CHANGE_LABELS[k]||k)+'：</b>'+escHtml(String(det[k]))+'</li>').join('')+'</ul>':'<div class="muted">无补充详情字段。</div>';
   $('hcBody').innerHTML=
     '<div class="pub-group-title">资费概要</div>'+basicTable+
     '<div class="pub-group-title">本次变更（'+(keys.length||'—')+' 个字段）</div>'+changeTable+
-    '<div class="pub-group-title">完整详情字段</div>'+detList+
-    '<div class="muted" style="padding:10px 2px;font-size:11px">记录日期：'+escHtml(h.date)+' · 运营商：'+escHtml(CARRIERS[h.op].name)+'</div>';
+    '<div class="pub-group-title">完整资费展示</div>'+renderPublicDetail(h)+
+    '<div class="muted" style="padding:10px 2px;font-size:11px">记录日期：'+escHtml(h.date)+' · 运营商：'+opName(h.op)+'</div>';
   openModal('historyModal');
 }
 $('hcCopy').addEventListener('click',()=>{
@@ -1436,7 +1452,7 @@ $('hcCopy').addEventListener('click',()=>{
   const old=h.old||{};
   const lines=[h.name,'运营商：'+CARRIERS[h.op].name,'省份：'+(h.province||'全国'),'日期：'+h.date,
     '变更类型：'+h.kind,'编号：'+(h.code||'—'),'月费：'+money(h.price)+'/月','本次摘要：'+changeText(h),
-    '变更字段：',...Object.keys(old).map(k=>'  '+(CHANGE_LABELS[k]||k)+'：'+diffVal(old[k],k)+' → '+diffVal(changeFieldVal(h,k),k))];
+    '变更字段：',...Object.keys(old).map(k=>'  '+changeLabel(k)+'：'+diffVal(old[k],k)+' → '+diffVal(changeFieldVal(h,k),k))];
   const done=()=>toast('变更详情已复制');
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(lines.join('\n')).then(done).catch(()=>fallbackCopy(lines.join('\n'),done));}
   else fallbackCopy(lines.join('\n'),done);
@@ -1569,7 +1585,11 @@ function adaptHistory(raw){
     price: Number(h.price)||0,
     data: h.data, voice: h.voice, broadband: h.broadband,
     code: h.code || '',
+    // 完整资费字段：变化页要展示与省份资费一致的公示详情，不能只留对比字段
+    type: h.type || '', owner: h.owner || '', source: h.source || '',
+    note: h.note || '', note_full: h.note_full || '', date_full: h.date || '',
     details: h.details && typeof h.details === 'object' ? h.details : null,
+    extra: h.details && typeof h.details === 'object' ? h.details : {},
     old: h.old && typeof h.old === 'object' ? h.old : null
   })).sort((a,b)=>b.date.localeCompare(a.date));
 }

@@ -85,8 +85,19 @@ FIELD_LABELS = {
     "onDate": "上架日期", "offDate": "下架日期", "validPeriod": "有效期",
     "inNetReq": "在网要求", "unsubscribe": "退订方式", "responsibility": "违约责任",
     "sms": "短信", "orient": "定向流量", "regionData": "省内流量",
-    "iptv": "IPTV", "rights": "权益", "service": "其他服务内容",
-    "extraFees": "额外费用", "otherNotes": "其他说明",
+    "iptv": "移动高清", "rights": "权益", "service": "其他服务内容",
+    "extraFees": "超出资费说明", "otherNotes": "其他说明",
+    # 官方原始英文字段键，避免推送里出现英文
+    "useScope": "适用范围", "applicableArea": "适用地区", "useArea": "适用地区",
+    "saleChnl": "销售渠道", "onlinePeriod": "上线日期", "duration": "在网要求",
+    "orientTraffic": "定向流量", "regionTraffic": "省内流量",
+    "serviceContent": "其他服务内容", "feeDesc": "资费说明",
+    "feesStandard": "资费标准", "feeUnit": "计费单位", "reportNo": "备案编号",
+    "codeType": "编号类型", "firstLevel": "一级分类", "secondLevel": "二级分类",
+    "firstLevelType": "一级类型", "secondLevelType": "二级类型",
+    "minute": "通话时长", "commonData": "通用流量", "dataUnit": "流量单位",
+    "broadBand": "宽带", "brandwidth": "宽带", "call": "语音通话",
+    "offlineDate": "下架日期",
 }
 
 
@@ -157,7 +168,7 @@ def describe(change):
     for key, before in old.items():
         if key in ("note", "note_full") and has_specific:
             continue
-        label = FIELD_LABELS.get(key) or FIELD_LABELS.get(key.split(".", 1)[-1]) or key
+        label = FIELD_LABELS.get(key) or FIELD_LABELS.get(key.split(".", 1)[-1]) or "补充信息"
         after = _field_value(change, key)
         if str(before or "") == str(after or ""):
             continue

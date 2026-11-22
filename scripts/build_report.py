@@ -22,7 +22,12 @@ import html
 import json
 import os
 
-OP_NAME = {"mobile": "中国移动", "telecom": "中国电信", "unicom": "中国联通", "gb": "中国广电"}
+OP_NAME = {
+    "mobile": "中国移动", "telecom": "中国电信", "unicom": "中国联通", "gb": "中国广电",
+    "unicom-sichuan": "四川联通专项", "mobile-focus": "中国移动重点专项",
+    "telecom-focus": "中国电信重点专项", "unicom-focus": "中国联通重点专项",
+    "gb-focus": "中国广电重点专项",
+}
 FIELD_LABELS = {
     "price": "月费", "data": "通用流量", "voice": "语音", "broadband": "宽带",
     "note": "资费说明", "note_full": "完整说明",
@@ -30,13 +35,55 @@ FIELD_LABELS = {
     "onDate": "上架日期", "offDate": "下架日期", "validPeriod": "有效期",
     "inNetReq": "在网要求", "unsubscribe": "退订方式", "responsibility": "违约责任",
     "sms": "短信", "orient": "定向流量", "regionData": "省内流量",
-    "iptv": "IPTV", "rights": "权益", "service": "其他服务内容",
-    "extraFees": "额外费用", "otherNotes": "其他说明",
+    "iptv": "移动高清", "rights": "权益", "service": "其他服务内容",
+    "extraFees": "超出资费说明", "otherNotes": "其他说明",
+    # 官方原始英文字段键，避免报告里出现英文
+    "useScope": "适用范围", "applicableArea": "适用地区", "useArea": "适用地区",
+    "saleChnl": "销售渠道", "onlinePeriod": "上线日期", "duration": "在网要求",
+    "orientTraffic": "定向流量", "regionTraffic": "省内流量",
+    "serviceContent": "其他服务内容", "feeDesc": "资费说明",
+    "feesStandard": "资费标准", "feeUnit": "计费单位", "reportNo": "备案编号",
+    "codeType": "编号类型", "firstLevel": "一级分类", "secondLevel": "二级分类",
+    "firstLevelType": "一级类型", "secondLevelType": "二级类型",
+    "minute": "通话时长", "commonData": "通用流量", "dataUnit": "流量单位",
+    "broadBand": "宽带", "brandwidth": "宽带", "call": "语音通话",
+    "offlineDate": "下架日期",
+}
+KNOWN_FIELDS = {"scope", "region", "channel", "onDate", "offDate", "validPeriod",
+                "inNetReq", "unsubscribe", "responsibility", "sms", "orient",
+                "regionData", "iptv", "rights", "service", "extraFees", "otherNotes"}
+# 详情字段别名：与页面 fieldVal() 保持一致
+DETAIL_ALIASES = {
+    "scope": ("scope", "useScope", "适用范围"),
+    "region": ("region", "applicableArea", "适用地区", "通用地区"),
+    "channel": ("channel", "saleChnl", "销售渠道"),
+    "onDate": ("onDate", "onlinePeriod", "上线日期"),
+    "offDate": ("offDate", "下线日期", "offlineDate"),
+    "validPeriod": ("validPeriod", "有效期限", "有效期"),
+    "inNetReq": ("inNetReq", "duration", "在网要求"),
+    "unsubscribe": ("unsubscribe", "退订方式"),
+    "responsibility": ("responsibility", "违约责任", "责任义务"),
+    "sms": ("sms", "短信"),
+    "orient": ("orient", "orientTraffic", "定向流量"),
+    "regionData": ("regionData", "regionTraffic", "省内流量"),
+    "iptv": ("iptv", "移动高清", "IPTV"),
+    "rights": ("rights", "权益"),
+    "service": ("service", "serviceContent", "其他服务内容", "服务内容"),
+    "extraFees": ("extraFees", "超出资费说明", "额外费用"),
+    "otherNotes": ("otherNotes", "其他说明"),
 }
 
 
 def _label(key):
-    return FIELD_LABELS.get(key) or FIELD_LABELS.get(key.split(".", 1)[-1]) or key
+    return FIELD_LABELS.get(key) or FIELD_LABELS.get(key.split(".", 1)[-1]) or "补充信息"
+
+
+def _detail_value(h, key):
+    d = h.get("details") or {}
+    for c in DETAIL_ALIASES.get(key, (key,)):
+        if d.get(c):
+            return _short(d[c], 1200)
+    return ""
 
 
 def _field_value(obj, key):
@@ -57,6 +104,60 @@ def _money(v):
     except (TypeError, ValueError):
         return str(v) if v not in (None, "") else "—"
     return "0元" if n == 0 else "¥%g" % n
+
+
+def _pairs(items):
+    return [[k, v] for k, v in items if v not in (None, "", "—")]
+
+
+def _full_detail(h):
+    """完整资费展示：与页面详情弹窗同结构，所有字段名中文化。"""
+    base = _pairs([
+        ["方案编号", _short(h.get("code"), 200)],
+        ["资费类型", _short(h.get("type"), 200)],
+        ["归属", _short(h.get("owner"), 200)],
+        ["资费标准", (_money(h.get("price")) + "/月") if h.get("price") not in (None, "") else ""],
+    ])
+    res = _pairs([
+        ["国内通话", _short(h.get("voice"), 300)],
+        ["国内通用流量", _short(h.get("data"), 300)],
+        ["定向流量", _detail_value(h, "orient")],
+        ["短信", _detail_value(h, "sms")],
+    ])
+    if h.get("broadband"):
+        res.append(["宽带", _short(h["broadband"], 300)])
+    if _detail_value(h, "iptv"):
+        res.append(["移动高清", _detail_value(h, "iptv")])
+    rules = _pairs([
+        ["适用范围", _detail_value(h, "scope")],
+        ["通用地区", _detail_value(h, "region") or ("全网" if h.get("scope") == "全国" else _short(h.get("province"), 100))],
+        ["销售渠道", _detail_value(h, "channel")],
+        ["上架日期", _detail_value(h, "onDate")],
+        ["下架日期", _detail_value(h, "offDate")],
+        ["有效期", _detail_value(h, "validPeriod")],
+        ["在网要求", _detail_value(h, "inNetReq")],
+        ["退订方式", _detail_value(h, "unsubscribe")],
+        ["违约责任", _detail_value(h, "responsibility")],
+    ])
+    extra = _pairs([
+        ["权益", _detail_value(h, "rights")],
+        ["超出资费说明", _detail_value(h, "extraFees")],
+        ["其他说明", _detail_value(h, "otherNotes")],
+    ])
+    # 官方新增、暂无固定中文名的字段：按序编号显示，不裸露英文键
+    d = h.get("details") or {}
+    left = []
+    for k, v in d.items():
+        if k in KNOWN_FIELDS or k in FIELD_LABELS or v in (None, ""):
+            continue
+        left.append(["补充信息 %d" % (len(left) + 1), _short(v, 600)])
+    extra += left
+    service = _detail_value(h, "service") or _short(h.get("note_full"), 2000) or _short(h.get("note"), 400)
+    return {
+        "base": base, "resource": res, "rules": rules, "extra": extra,
+        "service": service, "source": _short(h.get("source"), 200),
+        "date": _short(h.get("date"), 30),
+    }
 
 
 def change_summary(h):
@@ -111,6 +212,7 @@ def _prepare(rows):
             "date": h.get("date") or "",
             "summary": change_summary(h),
             "changes": _change_items(h),
+            "full": _full_detail(h),
         })
     return out
 
@@ -149,6 +251,9 @@ th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-alig
 th{background:#f3f4f6;width:92px;white-space:nowrap;color:var(--muted);font-weight:600}
 .before{color:var(--red);text-decoration:line-through;opacity:.75}.after{color:var(--green)}
 .nodiff{color:var(--muted);font-size:12.5px;padding:8px 0}
+.group{font-weight:600;color:var(--muted);font-size:12px;margin:12px 0 4px}
+.rule{padding:3px 0;color:#374151;font-size:12.5px}.rule b{color:var(--muted);font-weight:600}
+.svc{white-space:pre-wrap;color:#374151;font-size:12.5px}
 .empty{text-align:center;color:var(--muted);padding:36px 0}
 .foot{text-align:center;color:var(--muted);font-size:11.5px;margin:22px 0}
 @media(max-width:600px){.wrap{padding:14px 10px}h1{font-size:17px}.bar input{min-width:100%}}
@@ -173,10 +278,21 @@ function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
   $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · __SUBTITLE__';
 }
+function rowsTable(rows){return rows&&rows.length?'<table>'+rows.map(r=>'<tr><th>'+esc(r[0])+'</th><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'';}
+function ruleList(rows){return rows&&rows.length?rows.map(r=>'<div class="rule"><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</div>').join(''):'<div class="nodiff">无</div>';}
 function detail(h){
   const ch=h.changes||[];
-  if(!ch.length) return '<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
-  return '<table>'+ch.map(c=>'<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>').join('')+'</table>';
+  const cmp=ch.length?'<div class="group">本次变更</div><table>'+ch.map(c=>'<tr><th>'+esc(c.label)+'</th><td><span class="before">'+esc(c.before)+'</span> → <span class="after">'+esc(c.after)+'</span></td></tr>').join('')+'</table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
+  const f=h.full||{};
+  const svc=f.service?'<div class="svc">'+esc(f.service)+'</div>':'<div class="nodiff">暂无其他服务内容说明。</div>';
+  return cmp+
+    '<div class="group">完整资费展示</div>'+
+    '<div class="group">基础信息</div>'+rowsTable(f.base)+
+    '<div class="group">资费内容</div>'+rowsTable(f.resource)+
+    '<div class="group">业务规则</div>'+ruleList(f.rules)+
+    (f.extra&&f.extra.length?'<div class="group">补充信息</div>'+ruleList(f.extra):'')+
+    '<div class="group">其他服务内容</div>'+svc+
+    '<div class="nodiff">数据来源：'+esc(f.source)+' · 采集日期 '+esc(f.date)+'</div>';
 }
 function draw(){
   const kw=$('#q').value.trim().toLowerCase();

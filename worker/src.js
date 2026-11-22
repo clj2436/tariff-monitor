@@ -15,7 +15,8 @@
  *                     https://zf.chenlijun.eu.org 与 https://clj2436.github.io
  * 可选绑定：
  *   AUTH_KV        —— Cloudflare KV 绑定名，跨节点持久化密码失败计数/锁定状态
- * 安全：密码按 IP 计数，连续 5 次错误锁定 15 分钟；同 IP 最小请求间隔 400ms。
+ * 安全：密码按 IP 计数，连续 5 次错误锁定 15 分钟；同 IP 最小请求间隔 400ms；
+ *       5 分钟内全局失败 30 次则整体冷却 5 分钟；请求体上限 64KB；恒定时间比较。
  * ============================================================ */
 
 /* ---------- 内联依赖：tweetnacl + sealedbox（GitHub Secrets 加密用） ---------- */
@@ -66,6 +67,24 @@ const _authFails = new Map();          // 未绑定 KV 时退化为当前 isolat
 const MAX_FAILS = 5;                  // 连续 5 次错误即锁定
 const LOCK_MS = 15 * 60 * 1000;       // 锁定 15 分钟
 const MIN_INTERVAL_MS = 400;          // 同 IP 两次尝试最小间隔，压低爆破速率
+const MAX_BODY_BYTES = 64 * 1024;     // 请求体上限，避免超大 JSON 消耗资源
+// 全局熔断：单 IP 锁定挡不住换 IP 的分布式爆破，全局短时间内失败过多则整体冷却
+const GLOBAL_WINDOW_MS = 5 * 60 * 1000;
+const GLOBAL_FAIL_LIMIT = 30;
+const GLOBAL_LOCK_MS = 5 * 60 * 1000;
+let _globalFails = 0, _globalStart = 0, _globalLockUntil = 0;
+function globalLockSeconds(now) {
+  if (now - _globalStart > GLOBAL_WINDOW_MS) { _globalFails = 0; _globalStart = now; }
+  if (_globalLockUntil > now) return Math.ceil((_globalLockUntil - now) / 1000);
+  return 0;
+}
+function noteGlobalFail(now) {
+  _globalFails++;
+  if (_globalFails >= GLOBAL_FAIL_LIMIT) {
+    _globalLockUntil = now + GLOBAL_LOCK_MS;
+    _globalFails = 0;
+  }
+}
 
 function clientIP(request) {
   const h = request && request.headers;
@@ -120,6 +139,7 @@ async function checkPassword(request, env, password, cors) {
       msg = '密码错误次数过多，已锁定 15 分钟';
     }
     await writeAuthState(env, ip, st);
+    noteGlobalFail(now);
     return json({ ok: false, error: msg }, status, cors);
   }
   // 成功也要写回 lastAt，否则首次成功后紧接着的第二次请求会绕过最小间隔
@@ -341,13 +361,20 @@ async function handle(request, env) {
   if (request.method !== 'POST') return json({ ok: false, error: '仅支持 POST' }, 405, cors);
 
   let input;
-  try { input = await request.json(); } catch (e) { return json({ ok: false, error: '请求体不是合法 JSON' }, 400, cors); }
+  try {
+    const raw = await request.text();
+    if (raw.length > MAX_BODY_BYTES) return json({ ok: false, error: '请求内容过大' }, 413, cors);
+    input = JSON.parse(raw);
+  } catch (e) { return json({ ok: false, error: '请求体不是合法 JSON' }, 400, cors); }
   if (!input || typeof input !== 'object') return json({ ok: false, error: '请求体格式错误' }, 400, cors);
 
   // 密码校验：Worker 端 secrets，前端无法绕过
   if (!env.SITE_PASSWORD || !env.GITHUB_PAT || !env.REPO) {
     return json({ ok: false, error: 'Worker 未配置完整（需 SITE_PASSWORD / GITHUB_PAT / REPO）' }, 500, cors);
   }
+  const gsec = globalLockSeconds(Date.now());
+  if (gsec) return json({ ok: false, error: '失败请求过多，请 ' + gsec + ' 秒后重试' },
+                        429, Object.assign({}, cors, { 'Retry-After': String(gsec) }));
   const denied = await checkPassword(request, env, input.password, cors);
   if (denied) return denied;
 
