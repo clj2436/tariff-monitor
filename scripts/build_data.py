@@ -386,10 +386,16 @@ def changed_fields(new, old, detail_fields):
     - 比较前统一经 _diff_norm() 归一化，消除空白/换行等抓取格式抖动。
     """
     diff = {}
+    # 存量旧数据（早期初始化）没有 note_full/details 字段。首次升级到新 schema
+    # 时若把"从无到有"当变更，会把整批资费误报成修改并刷屏钉钉。故旧数据只比
+    # 原有的基础字段，详情字段等下一轮形成基线后再纳入比较。
+    legacy = "note_full" not in old and not old.get("details")
     for f in DIFF_BASE_FIELDS:
+        if legacy and f == "note_full":
+            continue
         if _diff_norm(new.get(f)) != _diff_norm(old.get(f)):
             diff[f] = old.get(f)
-    nd, od = new.get("details") or {}, old.get("details") or {}
+    nd, od = ({}, {}) if legacy else (new.get("details") or {}, old.get("details") or {})
     for f in dict.fromkeys(list(detail_fields) + list(nd) + list(od)):
         if _diff_norm(nd.get(f)) != _diff_norm(od.get(f)):
             diff["details." + f] = od.get(f)
