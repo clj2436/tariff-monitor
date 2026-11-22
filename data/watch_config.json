@@ -1,10 +1,14 @@
 {
-  "version": 1,
-  "updated_at": "2026-11-20 00:00:00",
+  "version": 2,
+  "updated_at": "2026-11-22 18:45:00",
+  "note": "重点组合由各专项 workflow 固定推送（标签★重点）；全量 workflow 只推其他省份（force-rules + exclude-rules，标签其他·X）。rules 字段供网页订阅页展示当前关注范围，实际推送范围已由两路分流固定；at_mobiles/max_items/site_url 仍生效。",
   "rules": [
-    {"op": "mobile", "provinces": ["江西"]},
-    {"op": "telecom", "provinces": ["新疆"]}
+    {"op": "mobile", "provinces": ["江西", "山西", "贵州", "吉林"]},
+    {"op": "telecom", "provinces": ["新疆", "吉林", "江西"]},
+    {"op": "unicom", "provinces": ["四川", "江西", "吉林"]},
+    {"op": "gb", "provinces": ["江西", "吉林"]}
   ],
+  "focus_rules": "mobile:江西|山西|贵州|吉林;telecom:新疆|吉林|江西;unicom:四川|江西|吉林;gb:江西|吉林",
   "at_mobiles": [],
   "max_items": 30,
   "site_url": ""

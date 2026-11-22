@@ -877,7 +877,8 @@ function renderSubscribe(){
     '<div class="sub-wrap">'+
     '<div class="card sub-sec">'+
       '<h4>① 关注的运营商与省份</h4>'+
-      '<p class="sub-hint">勾选后，这些地区的资费发生<b>新增 / 修改 / 下架</b>时会推送到钉钉。可跨运营商、多选多个省份。</p>'+
+      '<p class="sub-hint" style="color:var(--warn)">推送已分两路：<b>重点组合</b>（江西/吉林全省、山西·贵州移动、新疆电信、四川联通）由专项自动推送（标签「★重点」）；<b>其他省份</b>由全量自动推送（标签「其他·X」）。两路均固定，下面的省份勾选仅作范围记录，不再改变实际推送对象；@手机号 / 消息上限 / 站点地址仍生效。</p>'+
+      '<p class="sub-hint">勾选记录你关心的地区（新增 / 修改 / 下架）。可跨运营商、多选省份。</p>'+
       '<div class="sub-summary">当前关注：<b>'+subSummaryText()+'</b><br>共 '+subCount()+' 个关注项</div>'+
       opBlocks+
       '<div class="sub-actions"><button type="button" class="btn" id="subSelAll">全选全部省份</button><button type="button" class="btn" id="subClearAll">清空所有</button></div>'+
@@ -978,7 +979,7 @@ async function syncSubConfig(){
     }
     s.token=''; // 同步成功后清空内存中的 Token
     if($('subToken')) $('subToken').value='';
-    subStatus('✓ 已同步到仓库！Actions 下次抓取（每日 08:47 / 20:47，或手动触发）后将按新规则推送钉钉。\n当前关注 '+subCount()+' 项。','ok');
+    subStatus('✓ 已同步到仓库！配置已保存（@手机号 / 上限 / 站点）。重点组合由专项固定推送，其他省份由全量推送，均每日三次（00/08/16 点）。\n当前记录 '+subCount()+' 项。','ok');
   }catch(e){
     subStatus('同步失败：'+e.message+'\n\n提示：请使用细粒度 Token 并授予本仓库 Contents 读写权限。','err');
   }finally{
@@ -991,7 +992,8 @@ function renderAbout(){
     '<p id="aboutStatus"></p>'+
     '<h3>数据来源</h3><p>真实数据以中国移动、中国联通、中国电信、中国广电官网公开资费专区为准。</p>'+
     '<h3>省份切换</h3><p>「省份资费」页可自助选择省份；变化历史同样按省份标注。默认江西。</p>'+
-    '<h3>更新方式</h3><p><code>.github/workflows/update.yml</code> 每日两次（北京 08:47 / 20:47）自动抓取，也可在 Actions 页手动触发。抓取后统一字段、按稳定业务编号做 diff（价格/流量变动记为「修改」而非新增+下架），结果 commit 回仓库。页面刷新即读最新数据。</p>'+
+    '<h3>更新方式</h3><p>各运营商由独立 workflow 每日三次（北京时间 00:05 / 08:05 / 16:05）抓取；重点省份另有专项（00:25 起错峰，00:55 前），四川联通专项 00:15。也可在 Actions 页手动触发。抓取后统一字段、按稳定业务编号做 diff（价格/流量变动记为「修改」而非新增+下架），结果 commit 回仓库。页面刷新即读最新数据。</p>'+
+    '<h3>重点保障</h3><p>江西、吉林全省，以及山西·贵州移动、新疆电信、四川联通为重点关注范围，各自独立专项抓取（不受全量超时影响），资费变化以「★重点」标签单独推送；其他省份以「其他·运营商」标签推送，两路互不重复。</p>'+
     '<h3>变动提醒</h3><p>在「订阅推送」页勾选关注的运营商与省份（可多选、跨运营商），填入 GitHub Token 一键同步即可。Webhook 等敏感信息请在仓库 Settings → Secrets and variables → Actions 中设置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填写）。命中新增、修改或下架时自动推送；遇钉钉限流会自动退避重试，相同变更不重复推送。</p>'+
     '<h3>数据口径</h3><p>以官网「适用地区」「适用范围」字段为准，仅供参考。分类维度为 <code>套餐 / 加装包 / 营销活动</code> × <code>个人 / 政企</code>。</p>'+
     '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、字段级检索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、钉钉订阅推送配置、深色模式。</p>'+
@@ -1267,11 +1269,16 @@ function histKey(h){
 // 缓存改用 IndexedDB：全量数据约 127MB，localStorage 仅 5~10MB，根本写不进去，
 // 导致每次打开都要全量重下并长时间停在示例数据。IndexedDB 容量足、异步写不卡主线程。
 const CACHE_DB='tariff_cache_db', CACHE_STORE='kv', CACHE_KEY='meta';
-const CACHE_VER=6;            // 结构或逻辑变更时递增，自动作废旧缓存
+const CACHE_VER=7;            // 结构或逻辑变更时递增，自动作废旧缓存（v7 新增 4 个重点专项源）
 const CACHE_TTL=12*3600*1000; // 12 小时
 let _cacheDb=null;
-const OPS=['mobile','telecom','unicom','gb','unicom-sichuan'];
-function opName(op){return op==='unicom-sichuan'?'四川联通专项':(CARRIERS[op]?CARRIERS[op].name:op);}
+const OPS=['mobile','telecom','unicom','gb','unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus'];
+const FOCUS_OPS=['unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus']; // 专项源：与全量源重复时专项优先
+function opName(op){
+  if(op==='unicom-sichuan') return '四川联通专项';
+  if(op.endsWith('-focus')){const base=op.slice(0,-6);return (CARRIERS[base]?CARRIERS[base].name:base)+'重点专项';}
+  return CARRIERS[op]?CARRIERS[op].name:op;
+}
 let opState={};          // op -> {sig,meta,items,hist}  各家原始数据
 let opTimer=null;
 let failedOps=new Set(); // 探测/拉取失败的数据源，下一轮优先重试，避免永久卡旧缓存
@@ -1331,8 +1338,9 @@ function combineOps(){
     (s.items||[]).forEach(d=>{
       const k='i:'+(d.op||op)+'|'+(d.code||'')+'|'+(d.province||'')+'|'+(d.name||'');
       const old=itemMap.get(k);
-      // 全量联通源和四川专项目标可能都含四川资费：专项源优先，避免重复展示
-      if(!old||(op==='unicom-sichuan'&&old.src!=='unicom-sichuan')) itemMap.set(k,{d,src:op});
+      // 重点专项源与全量源会抓到同一批资费：专项源优先（数据更聚焦/更新更稳），避免重复展示
+      const isFocus=FOCUS_OPS.indexOf(op)>=0, oldIsFocus=old&&FOCUS_OPS.indexOf(old.src)>=0;
+      if(!old||(isFocus&&!oldIsFocus)) itemMap.set(k,{d,src:op});
     });
     (s.hist||[]).forEach(h=>{
       const k='h:'+(h.op||'')+'|'+(h.code||'')+'|'+(h.province||'')+'|'+(h.name||'')+'|'+
@@ -1366,7 +1374,7 @@ function applyData(label){
   else{tag.style.background='#fef3c7';tag.style.color='#92400e';}
   const updOps=OPS.filter(op=>opState[op]&&opState[op].meta&&opState[op].meta.timestamp)
     .map(op=>opName(op)+' '+(opState[op].meta.date||'')).join(' · ');
-  $('notice').textContent='数据由 GitHub Actions 分运营商独立抓取生成（含四川联通专项）· '+updOps+' · 实际资费以运营商官网与营业厅公示为准。';
+  $('notice').textContent='数据由 GitHub Actions 分运营商独立抓取生成（含江西/山西/贵州/吉林/新疆/四川重点专项）· '+updOps+' · 实际资费以运营商官网与营业厅公示为准。';
   $('sync').textContent=(label&&label!=='真实数据'?'实时 · ':'更新于 ')+(meta.date||'--');
   render();
 }

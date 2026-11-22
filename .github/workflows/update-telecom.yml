@@ -81,9 +81,11 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/notify_dingtalk.py \
+            --force-rules 'telecom:*' \
+            --exclude-rules 'telecom:新疆|吉林|江西' \
             --input data/ops/telecom/current_changes.json \
             --state data/ops/telecom/.notify_state.json \
-            --tag '电信'
+            --tag '其他·电信'
 
       - name: 提交本家数据
         run: |

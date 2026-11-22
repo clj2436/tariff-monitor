@@ -17,6 +17,7 @@
   SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/MAIL_TO  邮件通道（SMTP_PORT 默认 465）
   MAIL_FROM / MAIL_FROM_NAME  可选，发件地址与显示名
   WATCH_RULES          可选，关注规则，默认 mobile:*;telecom:*
+  EXCLUDE_RULES        可选，排除规则（格式同上），命中不推送；全量源用来剔除专项负责的重点组合
   SITE_URL             可选，资费专区地址，显示在消息末尾
   NOTIFY_MAX_ITEMS     可选，单条消息最多展示多少条变更，默认 30
 
@@ -31,6 +32,7 @@
 分片即时推送（并行分片架构）：
   --tag '移动·片0'          在消息里标注来源分片，便于区分先后推送
   --exclude a.json b.json   剔除这些文件里「已成功推送」的变化（merge 兜底用）
+  --exclude-rules 'mobile:江西'  排除指定组合不推（全量源推「其他」时用）
   --emit-pushed FILE        把本次实际推送成功的变化写出，供 merge 汇总剔除
   去重按「单条变化内容指纹」而非整批：分片与 merge 产出细节不同也能正确去重。
 
@@ -552,6 +554,10 @@ def main():
     ap.add_argument("--rules", default=os.environ.get("WATCH_RULES", "mobile:*;telecom:*"))
     ap.add_argument("--config", default=os.environ.get("WATCH_CONFIG", "data/watch_config.json"),
                     help="网页同步的关注规则配置文件（优先于 --rules）")
+    ap.add_argument("--exclude-rules", default=os.environ.get("EXCLUDE_RULES", ""),
+                    help="排除规则，格式同 WATCH_RULES；命中这些规则的变更不推送（全量源用来剔除重点专项已推的组合，避免重复）")
+    ap.add_argument("--force-rules", default=os.environ.get("FORCE_RULES", ""),
+                    help="强制使用 --rules/WATCH_RULES 的规则，忽略配置文件里的省份规则（但保留其 @/上限/站点设置）；配合 --exclude-rules 实现全量源只推「其他」")
     ap.add_argument("--ignore-config", action="store_true",
                     help="忽略网页配置文件，只用 --rules / WATCH_RULES（专项抓取源固定推送范围时用）")
     ap.add_argument("--state", default=os.environ.get("NOTIFY_STATE", "data/.notify_state.json"),
@@ -592,13 +598,21 @@ def main():
 
     # 优先用网页配置文件的规则；无配置文件时回退到 WATCH_RULES 环境变量
     cfg_rules, cfg = ([], {}) if args.ignore_config else rules_from_config(args.config)
-    rules = cfg_rules or parse_rules(args.rules)
+    # --force-rules：规则只用 --rules/WATCH_RULES，但仍读配置文件的 @/上限/站点设置
+    rules = parse_rules(args.force_rules) if args.force_rules else (cfg_rules or parse_rules(args.rules))
     if not rules:
         print("关注规则为空，跳过推送。")
         return 0
     hit = [h for h in changes if matched(h, rules)]
+    # 排除重点专项已负责推送的组合：全量源只推「其他」，与重点源分离、不重复。
+    exclude_rules = parse_rules(args.exclude_rules)
+    if exclude_rules:
+        before = len(hit)
+        hit = [h for h in hit if not matched(h, exclude_rules)]
+        if before != len(hit):
+            print("排除规则剔除 %d 条（由专项源负责推送）" % (before - len(hit)))
     if not hit:
-        print("本轮 %d 条变更均未命中关注规则，跳过推送。" % len(changes))
+        print("本轮 %d 条变更均未命中关注规则（或全被排除），跳过推送。" % len(changes))
         return 0
 
     # 指纹去重：按单条变化的内容指纹集合。分片各自推送不同板块，指纹不同；

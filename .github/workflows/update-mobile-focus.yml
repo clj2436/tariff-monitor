@@ -1,0 +1,117 @@
+name: 抓取移动重点省份资费
+
+# 重点专项：只抓 江西 / 山西 / 贵州 / 吉林 四省移动资费。
+# 独立目录 / 独立预算 / 独立 diff / 独立钉钉推送 / 独立提交，不受全量移动 workflow 的 90 分钟护栏影响。
+# 推送范围固定为这四省（重点源），全量移动 workflow 会排除这四省（其他源），两路不重复。
+on:
+  schedule:
+    - cron: '25 0,8,16 * * *'   # 北京时间 00:25 / 08:25 / 16:25，与全量移动错峰 20 分钟
+  workflow_dispatch:            # 手动触发
+
+permissions:
+  contents: write
+
+# 独立并发组：只和自己的上一次运行排队，不阻塞其他运营商/专项
+concurrency:
+  group: tariff-mobile-focus
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: 检出仓库（最新 main）
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 仅抓取移动重点省份并构建专项数据
+        env:
+          FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
+          FETCH_INTERVAL: ${{ vars.FETCH_INTERVAL || '2' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.FOCUS_TIME_BUDGET_MIN || '45' }}
+          # 首轮专项目录为空：只建基线不记变化，避免整批旧资费误报「新上架」刷屏
+          BASELINE_PROVINCES: '江西,山西,贵州,吉林'
+        run: |
+          python3 scripts/build_data.py \
+            --carriers mobile \
+            --sections jiangxi,shanxi,guizhou,jilin \
+            --out data/ops/mobile-focus \
+            --baseline-if-empty --baseline-provinces '江西,山西,贵州,吉林'
+
+      - name: 校验专项数据
+        run: |
+          python3 - <<'PYCHECK'
+          import json, sys
+          out = 'data/ops/mobile-focus'
+          try:
+            meta = json.load(open(out + '/latest.json', encoding='utf-8'))
+            items = json.load(open(out + '/items.json', encoding='utf-8'))
+          except Exception as e:
+            print('专项数据文件读取失败:', e); sys.exit(1)
+          if not isinstance(items, list) or meta.get('count', -1) != len(items):
+            print('数据不一致: meta.count=%s items=%s' % (meta.get('count'), len(items) if isinstance(items, list) else '?'))
+            sys.exit(1)
+          if not items:
+            print('警告：本轮移动重点省份未抓到数据，已保留上一轮结果')
+          else:
+            by = meta.get('by_province') or {}
+            missing = [p for p in ('江西','山西','贵州','吉林') if not by.get(p)]
+            print('移动重点专项校验通过：%d 条，本轮 %d 条变更；各省 %s%s' % (
+              len(items), meta.get('changes', 0),
+              ', '.join('%s:%s' % (p, by.get(p, 0)) for p in ('江西','山西','贵州','吉林')),
+              '（缺省：%s）' % ','.join(missing) if missing else ''))
+          PYCHECK
+
+      - name: 推送重点变化到钉钉
+        continue-on-error: true     # 推送失败不阻断数据提交
+        env:
+          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
+          WATCH_RULES: 'mobile:江西|山西|贵州|吉林'
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          python3 scripts/notify_dingtalk.py \
+            --ignore-config \
+            --input data/ops/mobile-focus/current_changes.json \
+            --state data/ops/mobile-focus/.notify_state.json \
+            --tag '★重点·移动'
+
+      - name: 提交专项数据
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ops/mobile-focus/
+          if git diff --cached --quiet; then
+            echo "专项数据无变化，跳过提交"
+          else
+            git commit -m "chore: 更新移动重点省份资费数据 $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            for i in 1 2 3 4 5 6; do
+              if git push; then echo "数据已提交"; break; fi
+              echo "push 冲突，rebase 后重试($i/6)"
+              git pull --rebase origin main || git rebase --abort || true
+              sleep 3
+            done
+          fi

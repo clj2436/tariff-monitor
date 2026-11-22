@@ -81,9 +81,11 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/notify_dingtalk.py \
+            --force-rules 'mobile:*' \
+            --exclude-rules 'mobile:江西|山西|贵州|吉林' \
             --input data/ops/mobile/current_changes.json \
             --state data/ops/mobile/.notify_state.json \
-            --tag '移动'
+            --tag '其他·移动'
 
       - name: 提交本家数据
         run: |
