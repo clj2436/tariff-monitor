@@ -150,6 +150,19 @@ tbody tr:hover{background:var(--card2)}
 .sub-hint{font-size:11.5px;color:var(--muted);margin:0 0 14px;line-height:1.6}
 .bot-config{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
 .bot-status{margin-top:8px;font-size:12px}
+.rt-card{border:1px solid var(--border);border-radius:9px;padding:11px 12px;margin-bottom:12px;background:var(--card2,rgba(127,127,127,.05))}
+.rt-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.rt-title{font-weight:700;font-size:12.5px;display:flex;align-items:center;gap:6px}
+.rt-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block}
+.rt-dot.live{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.rt-dot.err{background:#dc2626}
+.rt-rows{display:flex;gap:8px;flex-wrap:wrap}
+.rt-row{flex:1;min-width:150px;border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+.rt-row .rt-name{font-size:11px;color:var(--muted);margin-bottom:3px}
+.rt-row .rt-val{font-size:12.5px;font-weight:700}
+.rt-val.on{color:#15803d}.rt-val.off{color:var(--warn)}
+.rt-unlock{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.rt-unlock input{flex:1;min-width:140px}
 .bot-state{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
 .bot-status .pub-table{font-size:11.5px}
 .bot-status .pub-table th,.bot-status .pub-table td{padding:6px 8px}
@@ -481,8 +494,8 @@ const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),maxItems:Number(localStorage.getItem('tariff_max_items')||30),
-    // Worker 地址存本机；密码与 Webhook/密钥只留内存，绝不写 localStorage
-    workerUrl:localStorage.getItem('tariff_worker_url')||'',workerPwd:'',
+    // Worker 地址存 localStorage；密码只存 sessionStorage（关标签页即清、刷新不丢），Webhook/密钥只留内存
+    workerUrl:localStorage.getItem('tariff_worker_url')||'',workerPwd:sessionStorage.getItem('tariff_rt_pwd')||'',
     webhook:'',secret:'',
     webhookFocus:'',secretFocus:'',webhookOther:'',secretOther:'',
     channels:'',siteUrl:''},
@@ -1073,6 +1086,7 @@ async function readBotConfig(){
     if(note) note.innerHTML='✓ 已读取。<b>密钥无法回显原文</b>，上面显示的只是尾号；要改某一项，直接在对应框里填新值，留空则不改。'+
       (c.snapshot_persistent?'（尾号已持久化保存）':'（尾号暂存在 Worker 内存中，重启后可能丢失）');
     subStatus('✓ 读取成功。可直接在上方修改，改完点「保存修改」。','ok');
+    loadRealtimeStatus(true); // 同步刷新 ② 的实时配置卡片
   }catch(e){subStatus('读取失败：'+e.message,'err');}
   finally{btn.disabled=false;btn.textContent='读取配置';}
 }
@@ -1105,6 +1119,49 @@ async function saveBotConfig(){
     if($('subReadCfg')){try{await readBotConfig();}catch(e){}}
   }catch(e){subStatus('保存失败：'+e.message,'err');}
   finally{btn.disabled=false;btn.textContent='保存修改';}
+}
+/* 实时配置状态：经 Worker 读 GitHub Secrets 元数据（进订阅页即自动刷新） */
+let _rtAt=0,_rtBusy=false;
+async function loadRealtimeStatus(force){
+  const body=$('rtBody');if(!body)return;
+  if(!force&&_rtAt&&Date.now()-_rtAt<15000) return; // 勾选省份会频繁重渲染，15 秒内不重复打 Worker
+  if(_rtBusy) return;
+  const s=state.sub;
+  const setDot=(cls)=>{const d=$('rtDot');if(d)d.className='rt-dot'+(cls?' '+cls:'');};
+  const setTime=(t)=>{const e=$('rtTime');if(e)e.textContent=t;};
+  if(!workerUrl()){
+    setDot('err');setTime('未配置 Worker');
+    body.innerHTML='<div class="muted" style="font-size:11.5px">请先在③「高级 · 配置代理 Worker 地址」里填写 Worker 地址。</div>';
+    return;
+  }
+  if(!s.workerPwd){
+    setDot('err');setTime('等待密码');
+    const u=$('rtUnlock');if(u)u.style.display='';
+    body.innerHTML='<div class="muted" style="font-size:11.5px">输入配置密码后自动实时读取（密码只存本标签页会话，关闭即清除）。</div>';
+    return;
+  }
+  _rtBusy=true;
+  setDot('');setTime('读取中…');
+  body.innerHTML='<div class="muted" style="font-size:11.5px">正在通过 Worker 读取实时配置…</div>';
+  try{
+    const r=await workerCall({action:'read'});
+    const c=r.config||{},bots=c.bots||{};
+    const focus=bots.DINGTALK_WEBHOOK_FOCUS,other=bots.DINGTALK_WEBHOOK_OTHER,generic=bots.DINGTALK_WEBHOOK;
+    const pick=(b)=>b&&b.set?b:(generic&&generic.set?generic:null);
+    const f=pick(focus),o=pick(other);
+    const cell=(name,b)=>'<div class="rt-row"><div class="rt-name">'+name+'</div><div class="rt-val '+(b?'on':'off')+'">'+
+      (b?('已配置'+(b.tail?' ···'+b.tail:'')):'未配置')+'</div></div>';
+    body.innerHTML='<div class="rt-rows">'+cell('★重点运营商',f)+cell('非重点运营商',o)+'</div>'+
+      '<div class="muted" style="font-size:10.5px;margin-top:7px">直接读取 GitHub Secrets 元数据 · 密钥仅显示尾号，无法回读原文</div>';
+    setDot('live');setTime('实时 · '+new Date().toLocaleTimeString('zh-CN',{hour12:false}));
+    _rtAt=Date.now();
+    const u=$('rtUnlock');if(u)u.style.display='none';
+  }catch(e){
+    setDot('err');setTime('读取失败');
+    body.innerHTML='<div class="muted" style="font-size:11.5px;color:var(--warn)">实时读取失败：'+escHtml(e.message)+
+      '　可点下方重新输入密码。</div>';
+    const u=$('rtUnlock');if(u){u.style.display='';if($('rtPwd'))$('rtPwd').value=s.workerPwd||'';}
+  }finally{_rtBusy=false;}
 }
 /* 机器人状态：汇总 9 个源上报的 push_status.json + GitHub Actions 最近运行 */
 let _botStatusAt=0,_botStatusHtml='';
@@ -1179,7 +1236,16 @@ function renderSubscribe(){
     '</div>'+
     '<div class="card sub-sec">'+
       '<h4>② 钉钉机器人状态</h4>'+
-      '<p class="sub-hint">展示最近各路推送结果与 GitHub 任务运行情况。<b>Secret 无法被网页读取</b>，这里只显示各工作流上报的「是否已配置」标记，不含 Webhook / 密钥明文。</p>'+
+      '<div class="rt-card" id="rtCard">'+
+        '<div class="rt-head"><span class="rt-title"><span class="rt-dot" id="rtDot"></span>实时配置状态</span>'+
+        '<span class="muted" id="rtTime" style="font-size:11px">未检测</span></div>'+
+        '<div id="rtUnlock" class="rt-unlock" style="display:none">'+
+          '<input type="password" id="rtPwd" placeholder="输入配置密码（与 Worker 的 SITE_PASSWORD 一致）" autocomplete="off">'+
+          '<button type="button" class="btn on" id="rtGo">检测</button>'+
+        '</div>'+
+        '<div id="rtBody"><div class="muted" style="font-size:11.5px">正在读取实时配置…</div></div>'+
+      '</div>'+
+      '<p class="sub-hint">上方「实时配置」通过 Worker 直接读取 GitHub Secrets 的<b>当前</b>配置状态（进此页自动刷新，密钥只显示尾号）。下方是各路推送的历史记录与 GitHub 任务运行情况。</p>'+
       '<div class="bot-status" id="botStatus"><div class="muted">正在读取机器人状态…</div></div>'+
     '</div>'+
     '<div class="card sub-sec">'+
@@ -1247,10 +1313,18 @@ function renderSubscribe(){
   });
   if($('subMax')) $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
   if($('subWorkerUrl')) $('subWorkerUrl').addEventListener('input',e=>{s.workerUrl=e.target.value;localStorage.setItem('tariff_worker_url',e.target.value);});
-  if($('subWorkerPwd')) $('subWorkerPwd').addEventListener('input',e=>{s.workerPwd=e.target.value;});
+  // ③ 与 ② 两处密码框共用 state.sub.workerPwd，并同步写入 sessionStorage（刷新不丢、关标签页即清）
+  const syncPwd=v=>{s.workerPwd=v;sessionStorage.setItem('tariff_rt_pwd',v);
+    if($('rtPwd')&&$('rtPwd').value!==v) $('rtPwd').value=v;
+    if($('subWorkerPwd')&&$('subWorkerPwd').value!==v) $('subWorkerPwd').value=v;};
+  if($('subWorkerPwd')) $('subWorkerPwd').addEventListener('input',e=>syncPwd(e.target.value));
+  if($('rtPwd')){$('rtPwd').value=s.workerPwd||'';$('rtPwd').addEventListener('input',e=>syncPwd(e.target.value));}
+  if($('rtGo')) $('rtGo').addEventListener('click',()=>loadRealtimeStatus(true));
+  if($('rtPwd')) $('rtPwd').addEventListener('keydown',e=>{if(e.key==='Enter')loadRealtimeStatus(true);});
   if($('subReadCfg')) $('subReadCfg').addEventListener('click',readBotConfig);
   if($('subSaveBot')) $('subSaveBot').addEventListener('click',saveBotConfig);
   loadPushStatus();
+  loadRealtimeStatus(); // 进订阅页即自动实时读取（15 秒内不重复）
 }
 function toggleSub(op,pv){
   const arr=state.sub.rules[op]||(state.sub.rules[op]=[]);
