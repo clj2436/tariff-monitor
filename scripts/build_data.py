@@ -449,6 +449,9 @@ def main():
     ap.add_argument("--carriers", default="mobile,unicom,telecom,gb")
     ap.add_argument("--sections", default="")
     ap.add_argument("--rebuild", action="store_true")
+    # 专项分片首次运行时上一轮数据为空：只建基线，不把整批旧资费误报成「新上架」。
+    ap.add_argument("--baseline-if-empty", action="store_true",
+                    help="上轮无数据时只建基线，不记本轮变化（新增专项抓取源使用）")
     # 并行分片模式：--raw-out 只抓指定运营商、写出原始 rows 后即返回（不 diff）；
     # --merge-from 读取各分片 raw json，统一生成 id、合并、diff、输出 data/。
     ap.add_argument("--raw-out", default="")
@@ -519,7 +522,12 @@ def main():
         seen[stable_key(d) + "|" + str(d.get("name", ""))] = d
     rows = list(seen.values())
 
-    changes = [] if args.rebuild else diff_rows(prev_rows, rows)
+    if args.rebuild or (args.baseline_if_empty and not prev_rows):
+        changes = []
+        if args.baseline_if_empty and not prev_rows:
+            print("[基线] 本源首次运行，只建基线不记变化，避免整批误报为新上架")
+    else:
+        changes = diff_rows(prev_rows, rows)
     hist = (prev_hist + changes)[-150:]
 
     ops_present = sorted({d.get("op") for d in rows if d.get("op")})

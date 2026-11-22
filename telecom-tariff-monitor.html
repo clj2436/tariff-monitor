@@ -694,7 +694,7 @@ function renderHistory(){
   $('hProv').addEventListener('change',draw);
   $('hReload').addEventListener('click',async()=>{
     try{
-      // 4 家独立分片：只重新探测变化家的历史，重新合并
+      // 各独立数据源：只重新探测变化源的历史，重新合并
       const changed=await probeOps(false);
       if(changed.length) await refreshOps(changed);
       HISTORY=adaptHistory(combineOps().hist);
@@ -1080,13 +1080,15 @@ function histKey(h){
   return 'n:'+h.op+'|'+(h.province||'')+'|'+(h.name||''); // 无编号：退回 运营商+省份+名称
 }
 
-/* ---------- 数据加载：4 家独立分片 + 本地缓存 + 增量校验 ----------
+/* ---------- 数据加载：4 家独立分片 + 四川联通专项 + 本地缓存 + 增量校验 ----------
  * 每家运营商由独立 workflow 抓取，产物在 data/ops/<op>/{latest,items,history}.json。
- * 网页并行读 4 个 latest.json（每个约 200B）：哪家签名变了才拉那家的 items/history，
- * 合并后渲染。任一家抓取慢/失败都不影响其他家已更新的数据。定时轮询实现渐进可见。
+ * 四川联通另有专项 workflow（data/ops/unicom-sichuan/），抓得更快、单独推送；
+ * 网页并行读 5 个 latest.json（每个约 200B）：哪个源签名变了才拉那份 items/history，
+ * 合并时同一资费按「运营商+编号+省份+名称」去重，专项源优先。任一路慢/失败都不影响其他源。
  */
 const CACHE_KEY='tariff_cache_v3';
-const OPS=['mobile','telecom','unicom','gb'];
+const OPS=['mobile','telecom','unicom','gb','unicom-sichuan'];
+function opName(op){return op==='unicom-sichuan'?'四川联通专项':(CARRIERS[op]?CARRIERS[op].name:op);}
 let opState={};          // op -> {sig,meta,items,hist}  各家原始数据
 let opTimer=null;
 let combinedMeta=null;
@@ -1112,24 +1114,37 @@ function writeCache(){
   try{localStorage.setItem(CACHE_KEY,JSON.stringify({ops:opState}));}
   catch(e){} // 超出配额时跳过缓存，不影响功能
 }
-// 把 4 家原始数据合并成页面渲染所需的 meta/items/hist
+// 把 4 家 + 四川联通专项原始数据合并成页面渲染所需的 meta/items/hist
 function combineOps(){
-  const items=[],hist=[];
-  const byOp={},byProv={};
-  let count=0,changes=0,latestTs='',latestDate='';
+  const itemMap=new Map(),hist=[],seenHist=new Set();
+  let changes=0,latestTs='',latestDate='';
   OPS.forEach(op=>{
     const s=opState[op];
     if(!s) return;
-    (s.items||[]).forEach(d=>items.push(d));
-    (s.hist||[]).forEach(h=>hist.push(h));
+    (s.items||[]).forEach(d=>{
+      const k='i:'+(d.op||op)+'|'+(d.code||'')+'|'+(d.province||'')+'|'+(d.name||'');
+      const old=itemMap.get(k);
+      // 全量联通源和四川专项目标可能都含四川资费：专项源优先，避免重复展示
+      if(!old||(op==='unicom-sichuan'&&old.src!=='unicom-sichuan')) itemMap.set(k,{d,src:op});
+    });
+    (s.hist||[]).forEach(h=>{
+      const k='h:'+(h.op||'')+'|'+(h.code||'')+'|'+(h.province||'')+'|'+(h.name||'')+'|'+
+        (h.kind||'')+'|'+(h.timestamp||'')+'|'+JSON.stringify(h.fields||h.change||'');
+      if(seenHist.has(k)) return;
+      seenHist.add(k);hist.push(h);
+    });
     const m=s.meta||{};
-    count+=Number(m.count)||0; changes+=Number(m.changes)||0;
+    changes+=Number(m.changes)||0;
     if((m.timestamp||'')>latestTs) latestTs=m.timestamp||'';
     if((m.date||'')>latestDate) latestDate=m.date||'';
-    Object.entries(m.by_op||{}).forEach(([k,v])=>{byOp[k]=(byOp[k]||0)+v;});
-    Object.entries(m.by_province||{}).forEach(([k,v])=>{byProv[k]=(byProv[k]||0)+v;});
   });
-  const meta={timestamp:latestTs,date:latestDate,count,by_op:byOp,by_province:byProv,changes};
+  const items=[...itemMap.values()].map(x=>x.d);
+  const byOp={},byProv={};
+  items.forEach(d=>{
+    const k=d.op||'other';byOp[k]=(byOp[k]||0)+1;
+    const pk=d.province||'全国';byProv[pk]=(byProv[pk]||0)+1;
+  });
+  const meta={timestamp:latestTs,date:latestDate,count:items.length,by_op:byOp,by_province:byProv,changes};
   return {meta,items,hist};
 }
 function applyData(label){
@@ -1142,12 +1157,12 @@ function applyData(label){
   if(label==='真实数据'||!label){tag.style.background='#dcfce7';tag.style.color='#166534';}
   else{tag.style.background='#fef3c7';tag.style.color='#92400e';}
   const updOps=OPS.filter(op=>opState[op]&&opState[op].meta&&opState[op].meta.timestamp)
-    .map(op=>CARRIERS[op].name+' '+(opState[op].meta.date||'')).join(' · ');
-  $('notice').textContent='数据由 GitHub Actions 分运营商独立抓取生成 · '+updOps+' · 实际资费以运营商官网与营业厅公示为准。';
+    .map(op=>opName(op)+' '+(opState[op].meta.date||'')).join(' · ');
+  $('notice').textContent='数据由 GitHub Actions 分运营商独立抓取生成（含四川联通专项）· '+updOps+' · 实际资费以运营商官网与营业厅公示为准。';
   $('sync').textContent=(label&&label!=='真实数据'?'实时 · ':'更新于 ')+(meta.date||'--');
   render();
 }
-// 并行探测 4 家 latest.json：返回有变化的 op 列表（首次加载全部视为变化）
+// 并行探测各数据源 latest.json：返回有变化的源列表（首次加载全部视为变化）
 async function probeOps(firstLoad){
   const metas=await Promise.all(OPS.map(async op=>{
     try{return await fetchJSON(DATA_BASE+'ops/'+op+'/latest.json',7000);}
@@ -1196,13 +1211,13 @@ async function loadData(){
   const cached=readCache();
   // 1) 命中本地缓存：先即时渲染，页面秒开
   if(cached){opState=cached;applyData('本地缓存');}
-  // 2) 并行探测 4 家 latest.json，只拉变化家的完整数据
+  // 2) 并行探测各数据源 latest.json，只拉变化源的完整数据
   let changed=[];
   try{
     changed=await probeOps(!cached);
   }catch(e){}
   if(!changed.length&&cached){
-    // 4 家签名都没变：缓存即最新
+    // 所有数据源签名都没变：缓存即最新
     const tag=$('dataTag');tag.textContent='真实数据';tag.style.background='#dcfce7';tag.style.color='#166534';
   }else if(changed.length){
     const n=await refreshOps(changed);

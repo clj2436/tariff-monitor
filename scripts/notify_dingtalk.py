@@ -311,6 +311,8 @@ def main():
     ap.add_argument("--rules", default=os.environ.get("WATCH_RULES", "mobile:*;telecom:*"))
     ap.add_argument("--config", default=os.environ.get("WATCH_CONFIG", "data/watch_config.json"),
                     help="网页同步的关注规则配置文件（优先于 --rules）")
+    ap.add_argument("--ignore-config", action="store_true",
+                    help="忽略网页配置文件，只用 --rules / WATCH_RULES（专项抓取源固定推送范围时用）")
     ap.add_argument("--state", default=os.environ.get("NOTIFY_STATE", "data/.notify_state.json"),
                     help="已推送指纹状态文件，用于去重（分片各用独立文件避免并发写冲突）")
     ap.add_argument("--exclude", action="append", default=[],
@@ -329,7 +331,7 @@ def main():
         return 0
 
     # 优先用网页配置文件的规则；无配置文件时回退到 WATCH_RULES 环境变量
-    cfg_rules, cfg = rules_from_config(args.config)
+    cfg_rules, cfg = ([], {}) if args.ignore_config else rules_from_config(args.config)
     rules = cfg_rules or parse_rules(args.rules)
     if not rules:
         print("关注规则为空，跳过推送。")

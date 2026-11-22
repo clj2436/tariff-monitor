@@ -1,0 +1,101 @@
+name: 抓取四川联通资费
+
+# 专项 workflow：只抓四川联通一个省份，独立目录 / 独立 diff / 独立钉钉推送 / 独立提交。
+# 与「抓取联通资费」并行跑，四川抓得快不快都不影响其他运营商；
+# 推送范围固定为联通·四川，不受网页订阅配置覆盖，也不会与其他 workflow 重复推送。
+on:
+  schedule:
+    - cron: '15 0,8,16 * * *'   # 北京时间 00:15 / 08:15 / 16:15，和全量联通错峰 10 分钟
+  workflow_dispatch:            # 手动触发
+
+permissions:
+  contents: write
+
+# 独立并发组：只和自己的上一次运行排队，不阻塞其他运营商
+concurrency:
+  group: tariff-unicom-sichuan
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出仓库（最新 main）
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 仅抓取四川联通并构建专项数据
+        env:
+          FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
+          # 只抓一省，可以给更深的采样预算；全局护栏提前收尾，稳稳在 60 分钟内结束
+          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_SICHUAN_TIME_BUDGET || '600' }}
+          UNICOM_MIN_ROUNDS: ${{ vars.UNICOM_SICHUAN_MIN_ROUNDS || '120' }}
+          UNICOM_PASSES: ${{ vars.UNICOM_SICHUAN_PASSES || '16' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '40' }}
+        run: |
+          python3 scripts/build_data.py \
+            --carriers unicom --sections sichuan \
+            --out data/ops/unicom-sichuan --baseline-if-empty
+
+      - name: 校验专项数据
+        run: |
+          python3 - <<'PYCHECK'
+          import json, sys
+          out = 'data/ops/unicom-sichuan'
+          try:
+            meta = json.load(open(out + '/latest.json', encoding='utf-8'))
+            items = json.load(open(out + '/items.json', encoding='utf-8'))
+          except Exception as e:
+            print('专项数据文件读取失败:', e); sys.exit(1)
+          if not isinstance(items, list) or meta.get('count', -1) != len(items):
+            print('数据不一致: meta.count=%s items=%s' % (meta.get('count'), len(items) if isinstance(items, list) else '?'))
+            sys.exit(1)
+          if not items:
+            print('警告：本轮四川联通未抓到数据，已保留上一轮结果')
+          else:
+            print('四川联通校验通过：%d 条，本轮 %d 条变更' % (len(items), meta.get('changes', 0)))
+          PYCHECK
+
+      - name: 推送四川联通变化到钉钉
+        continue-on-error: true     # 推送失败不阻断数据提交
+        env:
+          WATCH_RULES: 'unicom:四川'
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          python3 scripts/notify_dingtalk.py \
+            --ignore-config \
+            --input data/ops/unicom-sichuan/current_changes.json \
+            --state data/ops/unicom-sichuan/.notify_state.json \
+            --tag '四川联通'
+
+      - name: 提交专项数据
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ops/unicom-sichuan/
+          if git diff --cached --quiet; then
+            echo "专项数据无变化，跳过提交"
+          else
+            git commit -m "chore: 更新四川联通资费数据 $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            # 多 workflow 同时 push 会撞车：各家改不同目录，rebase 后重试即可
+            for i in 1 2 3 4 5 6; do
+              if git push; then echo "数据已提交"; break; fi
+              echo "push 冲突，rebase 后重试($i/6)"
+              git pull --rebase origin main || git rebase --abort || true
+              sleep 3
+            done
+          fi
