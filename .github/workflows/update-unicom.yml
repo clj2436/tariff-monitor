@@ -1,7 +1,9 @@
 name: 抓取联通资费
 
 # 独立 workflow：只抓 联通 一家，与其他运营商完全隔离。
-# 抓取慢（如联通）只影响自己，不再拖慢其他家；无需全局 merge 等待。
+# 联通 32 板块单 job 需 ~100 分钟，90 分钟预算只够抓完前 16 省（北京→河南），
+# 后 15 省（湖北/广东/四川/贵州等）永远被跳过。改为 2 分片并行：
+# 每片 16 板块 ~50 分钟，各自写 raw 分片，merge job 合并后统一 diff/推送/提交。
 on:
   schedule:
     - cron: '5 0,8,16 * * *'   # 北京时间 00:05 / 08:05 / 16:05
@@ -16,9 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update:
+  # ── 分片抓取：2 个 job 各抓 16 板块，只写 raw 分片，不做 diff/提交 ──
+  shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1]
     steps:
       - name: 检出仓库（最新 main）
         uses: actions/checkout@v4
@@ -34,14 +41,62 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 抓取 联通 并构建本家数据
+      - name: 抓取分片 ${{ matrix.shard_index }}（16 板块 raw）
         env:
-          TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
+          SHARD_IDX: ${{ matrix.shard_index }}
+          SHARD_TOTAL: 2
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
           UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
-          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '90' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '60' }}
         run: |
-          python3 scripts/build_data.py --carriers unicom --out data/ops/unicom
+          mkdir -p /tmp/unicom-shards
+          python3 scripts/build_data.py --carriers unicom \
+            --raw-out /tmp/unicom-shards/shard-${{ matrix.shard_index }}.json
+
+      - name: 上传分片 raw
+        uses: actions/upload-artifact@v4
+        with:
+          name: unicom-shard-${{ matrix.shard_index }}
+          path: /tmp/unicom-shards/shard-${{ matrix.shard_index }}.json
+          retention-days: 1
+
+  # ── 合并：读全部分片 raw → 统一 id/合并/diff → 校验/推送/提交 ──
+  merge:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出仓库（最新 main）
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 下载全部分片 raw
+        uses: actions/download-artifact@v4
+        with:
+          pattern: unicom-shard-*
+          merge-multiple: true
+          path: /tmp/unicom-shards
+
+      - name: 合并分片并构建本家数据
+        env:
+          # 分片补齐的省份第一次进入全量源：数据落盘，但首轮新增不计变化，避免刷屏。
+          # 这 15 省此前因单 job 预算耗尽从未抓到，属于「新纳入」而非真实新上架。
+          BASELINE_PROVINCES: '湖北,湖南,广东,广西,海南,重庆,四川,贵州,云南,西藏,陕西,甘肃,青海,宁夏,新疆'
+        run: |
+          python3 scripts/build_data.py --carriers unicom \
+            --merge-from /tmp/unicom-shards \
+            --out data/ops/unicom \
+            --baseline-provinces '湖北,湖南,广东,广西,海南,重庆,四川,贵州,云南,西藏,陕西,甘肃,青海,宁夏,新疆'
 
       - name: 校验本家数据
         run: |
@@ -56,8 +111,11 @@ jobs:
           if not isinstance(items, list) or meta.get('count', -1) != len(items):
             print('数据不一致: meta.count=%s items=%s' % (meta.get('count'), len(items) if isinstance(items, list) else '?'))
             sys.exit(1)
-          print('联通 校验通过：%d 条，本轮 %d 条变更，板块 %s' % (
-            len(items), meta.get('changes', 0), ','.join(sorted((meta.get('by_province') or {}).keys()))))
+          provs = sorted((meta.get('by_province') or {}).keys())
+          print('联通 校验通过：%d 条，本轮 %d 条变更，板块 %d 个：%s' % (
+            len(items), meta.get('changes', 0), len(provs), ','.join(provs)))
+          if len(provs) < 30:
+            print('警告：联通板块不足 30 个，可能仍有省份抓取失败')
           PYCHECK
 
       - name: 推送本家变化到钉钉
@@ -67,7 +125,7 @@ jobs:
           WATCH_RULES: ${{ vars.WATCH_RULES || 'unicom:*' }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          DINGTALK_AT_MOBLES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
