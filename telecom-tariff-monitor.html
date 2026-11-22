@@ -422,24 +422,35 @@ Object.keys(CARRIERS).forEach(op=>{
 HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
 
 /* ---------- 状态 ---------- */
-/* 记住用户选择的运营商/省份/页签，刷新后恢复（校验合法性，避免脏数据） */
+/* 记住选择：localStorage + URL 地址栏双保险。
+ * 部分预览/沙箱环境刷新会清空 localStorage，但 URL 一定保留，故 hash 优先。 */
 const SEL_KEY='tariff_selection_v1';
 const VALID_TABS=['overview','national','province','search','history','subscribe','about'];
-function loadSel(){
+function selFromHash(){
   try{
-    const s=JSON.parse(localStorage.getItem(SEL_KEY)||'null')||{};
-    return {
-      op: CARRIERS[s.op]?s.op:'mobile',
-      prov: PROVINCES.indexOf(s.prov)>=0?s.prov:'江西',
-      tab: VALID_TABS.indexOf(s.tab)>=0?s.tab:'overview'
-    };
-  }catch(e){return {op:'mobile',prov:'江西',tab:'overview'};}
+    const m=new URLSearchParams(location.hash.replace(/^#/,''));
+    return {op:m.get('op')||'',prov:m.get('prov')||'',tab:m.get('tab')||'',sc:m.get('sc')||''};
+  }catch(e){return {};}
+}
+function loadSel(){
+  let s={};
+  try{s=JSON.parse(localStorage.getItem(SEL_KEY)||'null')||{};}catch(e){}
+  const h=selFromHash();
+  const op=h.op||s.op, prov=h.prov||s.prov, tab=h.tab||s.tab, sc=(h.sc!==''?h.sc:s.sc);
+  return {
+    op: CARRIERS[op]?op:'mobile',
+    prov: PROVINCES.indexOf(prov)>=0?prov:'江西',
+    tab: VALID_TABS.indexOf(tab)>=0?tab:'overview',
+    showCollect: sc!=='0'
+  };
 }
 const _sel=loadSel();
 function saveSel(){
-  try{localStorage.setItem(SEL_KEY,JSON.stringify({op:state.op,prov:state.prov,tab:state.tab}));}catch(e){}
+  const sel={op:state.op,prov:state.prov,tab:state.tab,sc:state.showCollect?'1':'0'};
+  try{localStorage.setItem(SEL_KEY,JSON.stringify(sel));}catch(e){}
+  try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
-const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
+const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
   search:{op:'all',field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
@@ -542,7 +553,7 @@ function cardsHTML(rows){
   if(state.page>total) state.page=total;
   const pageRows=rows.slice((state.page-1)*state.size,state.page*state.size);
   if(!rows.length) return '<div class="empty">没有符合条件的资费，试试调整筛选条件。</div>';
-  return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>上线日期</th><th>下架日期</th><th>采集日期</th><th>收藏</th><th>详情</th></tr></thead><tbody>'+
+  return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>上线日期</th><th>下架日期</th>'+(state.showCollect?'<th>采集日期</th>':'')+'<th>收藏</th><th>详情</th></tr></thead><tbody>'+
     pageRows.map(d=>'<tr>'+
       '<td>'+opBadge(d.op)+'</td>'+
       '<td class="name">'+d.name+(d.code?'<div class="namecode">'+escHtml(d.code)+'</div>':'')+'</td>'+
@@ -554,7 +565,7 @@ function cardsHTML(rows){
       '<td class="muted">'+(d.scope==='全国'?'全网':d.province)+'</td>'+
       '<td class="muted">'+onDateOf(d)+'</td>'+
       '<td class="muted">'+offDateOf(d)+'</td>'+
-      '<td class="muted">'+d.date+'</td>'+
+      (state.showCollect?'<td class="muted">'+d.date+'</td>':'')+
       '<td><button class="star'+(state.favs.has(d.id)?' on':'')+'" data-fav="'+d.id+'">'+(state.favs.has(d.id)?'★':'☆')+'</button></td>'+
       '<td><button class="detail" data-detail="'+d.id+'">查看</button></td>'+
     '</tr>').join('')+'</tbody></table></div>'+
@@ -582,6 +593,7 @@ function filtersHTML(withProv){
     '<div class="search"><input type="text" id="fQ" value="'+state.q.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/说明" style="width:230px"></div>'+
     '<button class="btn'+(state.zeroOnly?' on':'')+'" id="fZero" title="只看 0 元业务">零元业务</button>'+
     '<button class="btn'+(state.favOnly?' on':'')+'" id="fFav">★ 收藏</button>'+
+    '<button class="btn'+(state.showCollect?' on':'')+'" id="fCollect" title="显示/隐藏采集日期列">采集日期'+(state.showCollect?' ✓':'')+'</button>'+
     '<div class="filter-info"><span id="fCount">--</span><button class="link-btn" id="fCsv">导出 CSV</button><button class="link-btn" id="fReset">重置</button></div>'+
   '</div>';
 }
@@ -594,6 +606,7 @@ function bindFilters(withProv){
   $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;refreshResults();});
   $('fZero').addEventListener('click',()=>{state.zeroOnly=!state.zeroOnly;state.page=1;render();});
   $('fFav').addEventListener('click',()=>{state.favOnly=!state.favOnly;state.page=1;render();});
+  $('fCollect').addEventListener('click',()=>{state.showCollect=!state.showCollect;saveSel();render();toast(state.showCollect?'已显示采集日期':'已隐藏采集日期');});
   $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.zeroOnly=false;state.favOnly=false;state.page=1;render();});
   $('fCsv').addEventListener('click',exportCSV);
   $('fCount').textContent='共 '+currentRows().length+' 条';
@@ -1353,6 +1366,7 @@ async function loadData(){
 /* ---------- 启动 ---------- */
 (async function init(){
   applyTheme();updateSwitchLabel();renderNav();render();
+  saveSel(); // 首次进入即固化到地址栏，localStorage 被清时刷新仍可恢复
   await loadData();
 })();
 </script>
