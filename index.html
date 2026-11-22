@@ -177,6 +177,8 @@ body.dark .sub-status.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
 .hist-body{display:none;border-top:1px dashed var(--border);padding:2px 14px 6px 30px;background:var(--card2)}
 .hist-group.open .hist-body{display:block}
 .hist-body .tl-item{padding:9px 0}
+.batch-sum{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.batch-prov{font-size:10.5px;color:var(--muted);background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:1px 7px;white-space:nowrap}
 .hist-body .tl-dot{box-shadow:none;width:8px;height:8px}
 
 /* 关于 */
@@ -413,7 +415,7 @@ Object.keys(CARRIERS).forEach(op=>{
 HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
 
 /* ---------- 状态 ---------- */
-const state={tab:'overview',op:'mobile',prov:'江西',type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,page:1,size:12,
+const state={tab:'overview',op:'mobile',prov:'江西',type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
   search:{op:'all',field:'any',kw:'',mode:'contains'},
   sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
@@ -462,6 +464,7 @@ function currentRows(){
   if(state.tab==='province') rows=rows.filter(d=>d.scope==='省份'&&d.province===state.prov);
   if(state.type!=='all') rows=rows.filter(d=>d.type===state.type);
   if(state.owner!=='all') rows=rows.filter(d=>d.owner===state.owner);
+  if(state.zeroOnly) rows=rows.filter(d=>d.price===0);
   if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
   const q=state.q.trim().toLowerCase();
   // 覆盖全部字段：adaptRemote 已预计算 _hay；示例数据缺索引时按需补一次
@@ -482,12 +485,16 @@ function currentRows(){
   });
   return rows;
 }
+function onDateOf(d){
+  const e=d.extra||{};
+  return e.onDate||e.onlineDate||e.saleDate||'—';
+}
 function cardsHTML(rows){
   const total=Math.max(1,Math.ceil(rows.length/state.size));
   if(state.page>total) state.page=total;
   const pageRows=rows.slice((state.page-1)*state.size,state.page*state.size);
   if(!rows.length) return '<div class="empty">没有符合条件的资费，试试调整筛选条件。</div>';
-  return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>采集日期</th><th>收藏</th><th>详情</th></tr></thead><tbody>'+
+  return '<div class="table-wrap"><table><thead><tr><th>运营商</th><th>业务名称</th><th>类型</th><th>归属</th><th>月费</th><th>流量/语音</th><th>宽带</th><th>适用地区</th><th>上线日期</th><th>采集日期</th><th>收藏</th><th>详情</th></tr></thead><tbody>'+
     pageRows.map(d=>'<tr>'+
       '<td>'+opBadge(d.op)+'</td>'+
       '<td class="name">'+d.name+(d.code?'<div class="namecode">'+escHtml(d.code)+'</div>':'')+'</td>'+
@@ -497,6 +504,7 @@ function cardsHTML(rows){
       '<td class="muted">'+d.data+(d.voice!=='—'?' · '+d.voice:'')+'</td>'+
       '<td class="muted">'+d.broadband+'</td>'+
       '<td class="muted">'+(d.scope==='全国'?'全网':d.province)+'</td>'+
+      '<td class="muted">'+onDateOf(d)+'</td>'+
       '<td class="muted">'+d.date+'</td>'+
       '<td><button class="star'+(state.favs.has(d.id)?' on':'')+'" data-fav="'+d.id+'">'+(state.favs.has(d.id)?'★':'☆')+'</button></td>'+
       '<td><button class="detail" data-detail="'+d.id+'">查看</button></td>'+
@@ -523,6 +531,7 @@ function filtersHTML(withProv){
     '<select id="fSort"><option value="price"'+(state.sort==='price'?' selected':'')+'>按价格</option><option value="new"'+(state.sort==='new'?' selected':'')+'>最新上架</option></select>'+
     '<button class="btn" id="fAsc">'+(state.asc?'升序 ↑':'降序 ↓')+'</button>'+
     '<div class="search"><input type="text" id="fQ" value="'+state.q.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/说明" style="width:230px"></div>'+
+    '<button class="btn'+(state.zeroOnly?' on':'')+'" id="fZero" title="只看 0 元业务">零元业务</button>'+
     '<button class="btn'+(state.favOnly?' on':'')+'" id="fFav">★ 收藏</button>'+
     '<div class="filter-info"><span id="fCount">--</span><button class="link-btn" id="fCsv">导出 CSV</button><button class="link-btn" id="fReset">重置</button></div>'+
   '</div>';
@@ -534,16 +543,17 @@ function bindFilters(withProv){
   $('fSort').addEventListener('change',e=>{state.sort=e.target.value;state.page=1;render();});
   $('fAsc').addEventListener('click',()=>{state.asc=!state.asc;state.page=1;render();});
   $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;refreshResults();});
+  $('fZero').addEventListener('click',()=>{state.zeroOnly=!state.zeroOnly;state.page=1;render();});
   $('fFav').addEventListener('click',()=>{state.favOnly=!state.favOnly;state.page=1;render();});
-  $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.favOnly=false;state.page=1;render();});
+  $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.zeroOnly=false;state.favOnly=false;state.page=1;render();});
   $('fCsv').addEventListener('click',exportCSV);
   $('fCount').textContent='共 '+currentRows().length+' 条';
 }
 function exportCSV(){
   const rows=currentRows();
-  const head=['运营商','业务名称','业务编号','类型','归属','月费(元)','通用流量','定向流量','语音','短信','宽带','销售渠道','适用地区','采集日期','来源','资费说明'];
+  const head=['运营商','业务名称','业务编号','类型','归属','月费(元)','通用流量','定向流量','语音','短信','宽带','销售渠道','适用地区','上线日期','采集日期','来源','资费说明'];
   const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const lines=[head.map(esc).join(',')].concat(rows.map(d=>[CARRIERS[d.op].name,d.name,d.code||'',d.type,d.owner,d.price,d.data,(d.extra&&d.extra.orient)||'',d.voice,(d.extra&&d.extra.sms)||'',d.broadband,(d.extra&&d.extra.channel)||'',d.scope==='全国'?'全网':d.province,d.date,d.source||'',d.note||''].map(esc).join(',')));
+  const lines=[head.map(esc).join(',')].concat(rows.map(d=>[CARRIERS[d.op].name,d.name,d.code||'',d.type,d.owner,d.price,d.data,(d.extra&&d.extra.orient)||'',d.voice,(d.extra&&d.extra.sms)||'',d.broadband,(d.extra&&d.extra.channel)||'',d.scope==='全国'?'全网':d.province,onDateOf(d),d.date,d.source||'',d.note||''].map(esc).join(',')));
   const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=CARRIERS[state.op].name+'-'+(state.tab==='province'?state.prov:state.tab==='national'?'全国':'资费')+'.csv';a.click();URL.revokeObjectURL(a.href);
   toast('已导出 '+rows.length+' 条资费');
@@ -570,7 +580,7 @@ function renderOverview(){
     '<div class="overview-grid"><div class="card section"><div class="card-head"><h3 class="card-title">六大类分布 <span class="pill">'+state.prov+'</span></h3><span class="card-desc">本省资费总数 '+prov.length+'</span></div><div class="dist">'+
     cats.map(([c,n])=>'<div class="dist-row"><span class="dist-name">'+c+'</span><div class="dist-track"><div class="dist-fill" style="width:'+(n/max*100)+'%;background:'+CARRIERS[state.op].color+'"></div></div><span class="dist-val">'+n+'</span></div>').join('')+
     '</div></div><div class="card section"><div class="card-head"><h3 class="card-title">省份资费统计</h3><span class="card-desc">按收录数量排序</span></div><div class="prov-list">'+
-    provCount.slice(0,8).map(([p,n])=>'<div class="prov-item"><span>'+p+(p===state.prov?' <span class="pill">当前</span>':'')+'</span><b>'+n+'</b></div>').join('')+
+    provCount.slice(0,12).map(([p,n])=>'<div class="prov-item"><span>'+p+(p===state.prov?' <span class="pill">当前</span>':'')+'</span><b>'+n+'</b></div>').join('')+
     '<div class="prov-more" id="toProv">查看全部省份 →</div></div></div></div>';
   $('toProv').addEventListener('click',()=>{state.tab='province';renderNav();render();});
 }
@@ -655,13 +665,29 @@ function renderFieldSearch(){
 function renderHistory(){
   let rows=HISTORY.filter(h=>h.op===state.op);
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">资费变更历史 <span class="pill">'+CARRIERS[state.op].name+'</span></h3>'+
-    '<span class="card-desc">同一资费按编号合并 · 点开可看它的全部改动</span></div>'+
-    '<div class="filters"><select id="hProv"><option value="all">全部省份</option>'+PROVINCES.slice(1).map(p=>'<option'+(state.prov===p?' selected':'')+'>'+p+'</option>').join('')+'</select><button class="btn" id="hReload">重新加载</button><span class="filter-info" id="hCount"></span></div>'+
-    '<div class="timeline" id="timeline"></div></div>';
-  const draw=()=>{
-    const pv=$('hProv').value;
-    const list=pv==='all'?rows:rows.filter(h=>h.province===pv);
-    // 按资费编号分组（编号是「同一个资费」的判定依据）
+    '<span class="card-desc">按资费看完整轨迹，或按抓取批次看当天整体变动</span></div>'+
+    '<div class="filters"><select id="hProv"><option value="all">全部省份</option>'+PROVINCES.slice(1).map(p=>'<option'+(state.prov===p?' selected':'')+'>'+p+'</option>').join('')+'</select>'+
+    '<button class="btn'+(state.histMode==='item'?' on':'')+'" id="hModeItem">按资费</button>'+
+    '<button class="btn'+(state.histMode==='batch'?' on':'')+'" id="hModeBatch">按批次</button>'+
+    '<button class="btn" id="hExpand">全部展开</button>'+
+    '<button class="btn" id="hReload">重新加载</button><span class="filter-info" id="hCount"></span></div>'+
+    '<div class="timeline" id="timeline"></div><div id="hMore"></div></div>';
+
+  const bindGroups=()=>{
+    Array.prototype.forEach.call($('timeline').querySelectorAll('.hist-head'),el=>{
+      el.addEventListener('click',()=>el.parentNode.classList.toggle('open'));
+    });
+    $('hExpand').textContent=state.histExpand?'全部收起':'全部展开';
+  };
+  const tlItem=(h,color,showProv)=>{
+    const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+    return '<div class="tl-item"><span class="tl-dot" style="--oc:'+color+'"></span><div class="tl-body">'+
+      '<div class="tl-title"><span class="chg '+c+'">'+h.kind+'</span> '+
+      (showProv?'<span class="muted" style="font-weight:400;font-size:11.5px">'+h.province+' · </span>':'')+
+      '<span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span></div>'+
+      '<div class="tl-change">'+h.name+'</div><div class="tl-change muted">'+changeText(h)+'</div></div></div>';
+  };
+  const drawItem=(list)=>{
     const groups={};
     list.forEach(h=>{const k=histKey(h);(groups[k]=groups[k]||[]).push(h);});
     Object.values(groups).forEach(a=>a.sort((x,y)=>y.date.localeCompare(x.date)));
@@ -672,26 +698,55 @@ function renderHistory(){
       const arr=groups[k],latest=arr[0],color=CARRIERS[latest.op].color;
       const cls=latest.kind==='新增'?'new':latest.kind==='下架'?'off':'mod';
       const first=arr[arr.length-1].date, span=first===latest.date?latest.date:first+' ~ '+latest.date;
-      const timeline=arr.map(h=>{
-        const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
-        return '<div class="tl-item"><span class="tl-dot" style="--oc:'+color+'"></span><div class="tl-body">'+
-          '<div class="tl-title"><span class="chg '+c+'">'+h.kind+'</span> <span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span></div>'+
-          '<div class="tl-change muted">'+changeText(h)+'</div></div></div>';
-      }).join('');
-      return '<div class="hist-group'+(gi===0?' open':'')+'" data-k="'+gi+'">'+
+      return '<div class="hist-group'+((gi===0||state.histExpand)?' open':'')+'" data-k="'+gi+'">'+
         '<div class="hist-head"><span class="hist-arrow">▶</span>'+
         '<div class="hist-main"><div class="hist-name">'+latest.name+' <span class="chg '+cls+'">'+latest.kind+'</span>'+
         (latest.code?'<span class="hist-code">'+latest.code+'</span>':'')+'</div>'+
         '<div class="hist-summary">'+latest.province+' · '+span+' · 最近：'+changeText(latest)+'</div></div>'+
         '<span class="hist-count">'+arr.length+' 次改动</span></div>'+
-        '<div class="hist-body">'+timeline+'</div></div>';
+        '<div class="hist-body">'+arr.map(h=>tlItem(h,color,false)).join('')+'</div></div>';
     }).join('');
-    // 点标题展开/收起（避免整组点击时误触内部选中）
-    Array.prototype.forEach.call($('timeline').querySelectorAll('.hist-head'),el=>{
-      el.addEventListener('click',()=>el.parentNode.classList.toggle('open'));
-    });
+    bindGroups();
   };
-  $('hProv').addEventListener('change',draw);
+  const drawBatch=(list)=>{
+    const batches={};
+    list.forEach(h=>{(batches[h.date]=batches[h.date]||[]).push(h);});
+    const keys=Object.keys(batches).sort((a,b)=>b.localeCompare(a));
+    const shown=keys.slice(0,state.histPage*15);
+    $('hCount').textContent='共 '+keys.length+' 个批次 · '+list.length+' 条改动';
+    if(!keys.length){$('timeline').innerHTML='<div class="empty">该省份暂无变更记录。</div>';$('hMore').innerHTML='';return;}
+    $('timeline').innerHTML=shown.map(date=>{
+      const arr=batches[date],cnt={新增:0,修改:0,下架:0},byPv={};
+      arr.forEach(h=>{
+        cnt[h.kind]=(cnt[h.kind]||0)+1;
+        const p=h.province||'全国';
+        const b=byPv[p]||{新增:0,修改:0,下架:0};b[h.kind]=(b[h.kind]||0)+1;byPv[p]=b;
+      });
+      const pvChips=Object.keys(byPv).sort((a,b)=>(byPv[b].新增+byPv[b].修改+byPv[b].下架)-(byPv[a].新增+byPv[a].修改+byPv[a].下架)).slice(0,12)
+        .map(p=>'<span class="batch-prov">'+p+' 上架'+byPv[p].新增+' 修改'+byPv[p].修改+' 下架'+byPv[p].下架+'</span>').join('');
+      const body=arr.slice(0,60).map(h=>tlItem(h,CARRIERS[h.op].color,true)).join('')+
+        (arr.length>60?'<div class="tl-change muted">本批还有 '+(arr.length-60)+' 条，切到「按资费」可展开完整轨迹。</div>':'');
+      return '<div class="hist-group'+((shown.indexOf(date)===0||state.histExpand)?' open':'')+'">'+
+        '<div class="hist-head"><span class="hist-arrow">▶</span>'+
+        '<div class="hist-main"><div class="hist-name">'+date+' 抓取批次</div>'+
+        '<div class="hist-summary">新增 '+cnt.新增+' · 修改 '+cnt.修改+' · 下架 '+cnt.下架+'</div>'+
+        '<div class="batch-sum">'+pvChips+'</div></div>'+
+        '<span class="hist-count">'+arr.length+' 条</span></div>'+
+        '<div class="hist-body">'+body+'</div></div>';
+    }).join('');
+    $('hMore').innerHTML=keys.length>shown.length?'<button class="btn" id="hLoadMore">加载更早（还有 '+(keys.length-shown.length)+' 批）</button>':'';
+    if($('hLoadMore')) $('hLoadMore').addEventListener('click',()=>{state.histPage++;draw();});
+    bindGroups();
+  };
+  const draw=()=>{
+    const pv=$('hProv').value;
+    const list=pv==='all'?rows:rows.filter(h=>h.province===pv);
+    if(state.histMode==='batch') drawBatch(list); else drawItem(list);
+  };
+  $('hProv').addEventListener('change',()=>{state.histPage=1;draw();});
+  $('hModeItem').addEventListener('click',()=>{state.histMode='item';state.histPage=1;render();});
+  $('hModeBatch').addEventListener('click',()=>{state.histMode='batch';state.histPage=1;render();});
+  $('hExpand').addEventListener('click',()=>{state.histExpand=!state.histExpand;draw();});
   $('hReload').addEventListener('click',async()=>{
     try{
       // 各独立数据源：只重新探测变化源的历史，重新合并
