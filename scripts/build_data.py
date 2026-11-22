@@ -243,10 +243,16 @@ def do_mobile(sections):
     failed = []          # 收集失败板块，最后统一汇总，避免逐条刷 stderr
     secs = sections or ["quanguo"] + [s for s, _, _ in
                                       __import__("province_table").PROVINCES]
-    for sec in secs:
+    # 省份分片：与 do_common 一致，按全部板块索引取模，SHARD_IDX/TOTAL 各抓自己那份。
+    # 移动 32 板块单 job 会漏抓后面的省，拆 2 片后用 --raw-out 写分片、merge 汇总。
+    shard_idx = int(os.getenv("SHARD_IDX") or "0")
+    shard_total = max(1, int(os.getenv("SHARD_TOTAL") or "1"))
+    for ji, sec in enumerate(secs):
+        if shard_total > 1 and (ji % shard_total) != shard_idx:
+            continue
         if _expired():
             print(f"[移动] 全局时间预算耗尽，跳过 {sec} 及其后板块（保留旧数据）")
-            failed.extend(secs[secs.index(sec):])
+            failed.extend(secs[ji:])
             break
         code = "731" if sec == "quanguo" else SECTION_INFO.get(sec, ("731", sec, sec))[0]
         try:
@@ -512,12 +518,29 @@ def main():
 
     # 合并策略：按 (运营商, 省份) 板块合并。本轮成功抓到的板块整批替换旧数据，
     # 失败/受限板块保留旧数据，避免接口抖动把已有数据清空。
-    # 真实抓取中一个板块要么整批成功、要么整批失败，故下架检测仍由 diff_rows 正确得出。
     def block_key(d):
         return (d.get("op"), d.get("province") or "全国")
-    fresh_blocks = {block_key(d) for d in rows}
+
+    # 板块数量骤降保护：源站偶发降级时某板块只回极少条（如山东 1000→40），
+    # 若照常整批替换会把存量冲掉、页面显示"资费偏少"。本轮条数 < 上轮×40%
+    # 且上轮该板块 ≥20 条时判定降级，保留上轮整批数据。
+    # 仅 --merge-from（分片）模式启用：此时各板块数据完整可比，避免单源抓取模式误判。
+    degraded_blocks = set()
+    if args.merge_from and prev_rows:
+        from collections import Counter as _Counter
+        prev_cnt = _Counter(block_key(d) for d in prev_rows)
+        fresh_cnt = _Counter(block_key(d) for d in rows)
+        for bk, pc in prev_cnt.items():
+            fc = fresh_cnt.get(bk, 0)
+            if pc >= 20 and fc < pc * 0.4:
+                degraded_blocks.add(bk)
+        if degraded_blocks:
+            print("[骤降保护] 以下板块本轮条数远低于上轮，保留上轮数据：" +
+                  "、".join("%s/%s(%d→%d)" % (bk[0], bk[1], prev_cnt[bk], fresh_cnt.get(bk, 0))
+                            for bk in sorted(degraded_blocks)))
+    fresh_blocks = {block_key(d) for d in rows} - degraded_blocks
     kept = [d for d in prev_rows if block_key(d) not in fresh_blocks]
-    merged = kept + rows
+    merged = kept + [d for d in rows if block_key(d) not in degraded_blocks]
     # 去重：按稳定编号，新的覆盖旧的
     seen = {}
     for d in merged:

@@ -1,7 +1,11 @@
 name: 抓取移动资费
 
 # 独立 workflow：只抓 移动 一家，与其他运营商完全隔离。
-# 抓取慢（如联通）只影响自己，不再拖慢其他家；无需全局 merge 等待。
+# 移动 32 板块单 job 需 ~100 分钟，90 分钟预算会漏抓后 13 省
+# （北京/天津/吉林/黑龙江/浙江/湖北/重庆/四川/陕西/甘肃/青海/宁夏等）。
+# 改为 2 分片并行：每片 16 板块 ~50 分钟，各自写 raw 分片，merge job 合并后统一 diff/推送/提交。
+# 合并阶段有「板块骤降保护」：某板块本轮条数 < 上轮 40% 时保留旧数据，
+# 防止接口抽风把 1000 条冲成 40 条（山东/河北资费偏少的根因）。
 on:
   schedule:
     - cron: '5 0,8,16 * * *'   # 北京时间 00:05 / 08:05 / 16:05
@@ -16,9 +20,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update:
+  # ── 分片抓取：2 个 job 各抓 16 板块，只写 raw 分片，不做 diff/提交 ──
+  shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [0, 1]
     steps:
       - name: 检出仓库（最新 main）
         uses: actions/checkout@v4
@@ -34,14 +43,62 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 抓取 移动 并构建本家数据
+      - name: 抓取分片 ${{ matrix.shard_index }}（16 板块 raw）
         env:
-          TRACK_PROVINCES: ${{ vars.TRACK_PROVINCES }}
+          SHARD_IDX: ${{ matrix.shard_index }}
+          SHARD_TOTAL: 2
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
-          UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
-          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '90' }}
+          FETCH_INTERVAL: ${{ vars.FETCH_INTERVAL || '2' }}
+          GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '60' }}
         run: |
-          python3 scripts/build_data.py --carriers mobile --out data/ops/mobile
+          mkdir -p /tmp/mobile-shards
+          python3 scripts/build_data.py --carriers mobile \
+            --raw-out /tmp/mobile-shards/shard-${{ matrix.shard_index }}.json
+
+      - name: 上传分片 raw
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-shard-${{ matrix.shard_index }}
+          path: /tmp/mobile-shards/shard-${{ matrix.shard_index }}.json
+          retention-days: 1
+
+  # ── 合并：读全部分片 raw → 骤降保护/统一 id/合并/diff → 校验/推送/提交 ──
+  merge:
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 检出仓库（最新 main）
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 下载全部分片 raw
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mobile-shard-*
+          merge-multiple: true
+          path: /tmp/mobile-shards
+
+      - name: 合并分片并构建本家数据
+        env:
+          # 分片补齐的省份第一次进入全量源：数据落盘，但首轮新增不计变化，避免刷屏。
+          # 这 13 省此前因单 job 预算耗尽从未抓到，属于「新纳入」而非真实新上架。
+          BASELINE_PROVINCES: '北京,天津,辽宁,吉林,黑龙江,浙江,湖北,重庆,四川,陕西,甘肃,青海,宁夏'
+        run: |
+          python3 scripts/build_data.py --carriers mobile \
+            --merge-from /tmp/mobile-shards \
+            --out data/ops/mobile \
+            --baseline-provinces '北京,天津,辽宁,吉林,黑龙江,浙江,湖北,重庆,四川,陕西,甘肃,青海,宁夏'
 
       - name: 校验本家数据
         run: |
@@ -56,8 +113,11 @@ jobs:
           if not isinstance(items, list) or meta.get('count', -1) != len(items):
             print('数据不一致: meta.count=%s items=%s' % (meta.get('count'), len(items) if isinstance(items, list) else '?'))
             sys.exit(1)
-          print('移动 校验通过：%d 条，本轮 %d 条变更，板块 %s' % (
-            len(items), meta.get('changes', 0), ','.join(sorted((meta.get('by_province') or {}).keys()))))
+          provs = sorted((meta.get('by_province') or {}).keys())
+          print('移动 校验通过：%d 条，本轮 %d 条变更，板块 %d 个：%s' % (
+            len(items), meta.get('changes', 0), len(provs), ','.join(provs)))
+          if len(provs) < 30:
+            print('警告：移动板块不足 30 个，可能仍有省份抓取失败')
           PYCHECK
 
       - name: 推送本家变化到钉钉
