@@ -121,6 +121,17 @@ tbody tr:hover{background:var(--card2)}
 .detail{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:6px;padding:4px 9px;font-size:11.5px}
 .detail:hover{color:var(--blue);border-color:var(--blue)}
 .empty{padding:40px;text-align:center;color:var(--muted);font-size:13px}
+/* 加载态 / 加载失败态 */
+.load-state{padding:54px 22px;text-align:center}
+.load-spinner{width:42px;height:42px;margin:0 auto 20px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:loadspin .8s linear infinite}
+@keyframes loadspin{to{transform:rotate(360deg)}}
+.load-title{font-size:17px;font-weight:700;margin-bottom:8px}
+.load-desc{color:var(--muted);font-size:12.5px;line-height:1.9;max-width:520px;margin:0 auto}
+.load-steps{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin:22px auto 0;max-width:560px}
+.load-step{font-size:11px;padding:5px 10px;border:1px solid var(--border);border-radius:20px;color:var(--muted);background:var(--card)}
+.load-step.on{color:#0f9d6e;border-color:#0f9d6e}
+.load-icon{font-size:34px;margin-bottom:14px}
+.load-retry{margin-top:18px}
 .pager{display:flex;justify-content:space-between;align-items:center;padding:12px 17px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);gap:12px;flex-wrap:wrap}
 .pager-btns{display:flex;gap:6px}
 .pager-btns button{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:6px;padding:5px 10px;font-size:12px}
@@ -360,76 +371,10 @@ function loadSubRules(){
   return {mobile:['江西'],telecom:['新疆'],unicom:[],gb:[]};
 }
 const OWNERS=['个人','政企'];
-const TPL={
-  mobile:[
-    {n:'动感地带5G 78元档',p:78,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'含来电显示；套餐外流量5元/GB。'},
-    {n:'全球通5G 128元档',p:128,t:'套餐',o:'个人',d:'60GB通用',v:'1000分钟',b:'—',note:'含机场贵宾厅等全球通权益。'},
-    {n:'移动花卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+30GB定向',v:'100分钟',b:'—',note:'定向流量覆盖主流短视频与音乐App。'},
-    {n:'全家享融合169元档',p:169,t:'套餐',o:'个人',d:'80GB通用',v:'1000分钟',b:'1000Mbps',note:'含千兆宽带与2张副卡共享。'},
-    {n:'和多号副卡服务费',p:10,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'一证多号，月租10元/张。'},
-    {n:'5G升级包30元档',p:30,t:'加装包',o:'个人',d:'20GB通用',v:'—',b:'—',note:'订购次月生效，不可退订当月。'},
-    {n:'新用户入网优惠活动',p:0,t:'营销活动',o:'个人',d:'10GB通用×6个月',v:'—',b:'—',note:'首年每月赠送10GB，到期自动取消。'},
-    {n:'政企专线宽带100M',p:380,t:'套餐',o:'政企',d:'—',v:'—',b:'100Mbps',note:'含固定IP一个，需企业资质。'},
-    {n:'政企云视讯基础版',p:58,t:'加装包',o:'政企',d:'—',v:'—',b:'—',note:'最高10方视频会议。'}
-  ],
-  unicom:[
-    {n:'冰激凌5G 99元档',p:99,t:'套餐',o:'个人',d:'40GB通用',v:'1000分钟',b:'—',note:'达量降速至1Mbps，次月恢复。'},
-    {n:'腾讯王卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+定向免流',v:'100分钟',b:'—',note:'腾讯系App免流，非免流按日租计费。'},
-    {n:'沃派5G 59元档',p:59,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'含1张副卡。'},
-    {n:'智慧沃家199元档',p:199,t:'套餐',o:'个人',d:'100GB通用',v:'1500分钟',b:'1000Mbps',note:'含IPTV与全屋Wi-Fi组网。'},
-    {n:'流量叠加包20元档',p:20,t:'加装包',o:'个人',d:'10GB通用',v:'—',b:'—',note:'当月有效，不可结转。'},
-    {n:'视频会员权益包',p:15,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'每月任选一款视频会员。'},
-    {n:'校园新生入网礼',p:0,t:'营销活动',o:'个人',d:'20GB通用×12个月',v:'200分钟',b:'—',note:'凭学生证办理，限首年。'},
-    {n:'政企固话融合套餐',p:299,t:'套餐',o:'政企',d:'50GB通用',v:'2000分钟',b:'500Mbps',note:'含3部固话。'},
-    {n:'企业云盘扩容包',p:30,t:'加装包',o:'政企',d:'—',v:'—',b:'—',note:'扩容至1TB。'}
-  ],
-  telecom:[
-    {n:'天翼5G 79元档',p:79,t:'套餐',o:'个人',d:'30GB通用',v:'500分钟',b:'—',note:'赠送100分钟国际长途。'},
-    {n:'星卡39元档',p:39,t:'套餐',o:'个人',d:'20GB通用+10GB定向',v:'100分钟',b:'—',note:'首年每月返10元话费。'},
-    {n:'天翼畅享129元档',p:129,t:'套餐',o:'个人',d:'80GB通用',v:'1500分钟',b:'—',note:'含5G会员权益三选一。'},
-    {n:'十全十美融合199元档',p:199,t:'套餐',o:'个人',d:'100GB通用',v:'1000分钟',b:'1000Mbps',note:'含IPTV与2张副卡。'},
-    {n:'国际漫游流量包',p:25,t:'加装包',o:'个人',d:'3GB漫游流量',v:'—',b:'—',note:'适用部分国家和地区。'},
-    {n:'天翼云盘会员',p:10,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'个人云盘扩容至2TB。'},
-    {n:'宽带新装0元活动',p:0,t:'营销活动',o:'个人',d:'—',v:'—',b:'300Mbps',note:'承诺在网24个月，免初装费。'},
-    {n:'政企天翼云电脑',p:88,t:'套餐',o:'政企',d:'—',v:'—',b:'—',note:'含云桌面与thin client。'},
-    {n:'商务领航专线',p:699,t:'套餐',o:'政企',d:'200GB通用',v:'3000分钟',b:'1000Mbps',note:'含固定IP与SLA保障。'}
-  ],
-  gb:[
-    {n:'广电5G 38元档',p:38,t:'套餐',o:'个人',d:'20GB通用',v:'100分钟',b:'—',note:'广电192号段，含基础影视权益。'},
-    {n:'广电5G 68元档',p:68,t:'套餐',o:'个人',d:'40GB通用',v:'300分钟',b:'—',note:'含有线电视基础频道。'},
-    {n:'广电融合128元档',p:128,t:'套餐',o:'个人',d:'60GB通用',v:'800分钟',b:'1000Mbps',note:'含广电宽带与电视盒子。'},
-    {n:'影视会员加装包',p:20,t:'加装包',o:'个人',d:'—',v:'—',b:'—',note:'含4K影视内容。'},
-    {n:'新号段体验活动',p:0,t:'营销活动',o:'个人',d:'10GB通用×3个月',v:'—',b:'—',note:'限192新号段用户。'},
-    {n:'政企广电专线',p:399,t:'套餐',o:'政企',d:'—',v:'—',b:'500Mbps',note:'含企业电视专网。'}
-  ]
-};
-
-/* ---------- 生成示例数据（模拟全国+31省） ---------- */
-function hash(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h);}
-function pad(n){return String(n).padStart(2,'0');}
-function dateOf(seed){const d=new Date(2026,10,1+hash(seed)%19);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
-let DATA=[];
-Object.keys(CARRIERS).forEach(op=>{
-  TPL[op].forEach((t,ti)=>{
-    const base={op,type:t.t,owner:t.o,data:t.d,voice:t.v,broadband:t.b,note:t.note,cat:t.t+'/'+t.o};
-    DATA.push({...base,id:op+'-n'+ti,scope:'全国',province:'全国',name:t.n,price:t.p,date:dateOf(op+t.n+'n')});
-    PROVINCES.slice(1).forEach((pv,pi)=>{
-      const delta=(hash(op+pv+t.n)%5-2)*3;
-      const price=Math.max(0,t.p+delta);
-      const white=(hash(pv+t.n)%7===0);
-      DATA.push({...base,id:op+'-'+pi+'-'+ti,scope:'省份',province:pv,name:(white?'【白名单】':'')+t.n,price,date:dateOf(op+pv+t.n)});
-    });
-  });
-});
-let HISTORY=[];
-Object.keys(CARRIERS).forEach(op=>{
-  TPL[op].forEach((t,ti)=>{
-    const pv=PROVINCES[hash(op+t.n+ti)%PROVINCES.length];
-    const kind=['新增','修改','下架'][hash(op+t.n+'k')%3];
-    HISTORY.push({op,province:pv,name:t.n,kind,date:dateOf(op+t.n+'h'),price:t.p});
-  });
-});
-HISTORY.sort((a,b)=>b.date.localeCompare(a.date));
+// 不内置任何示例数据：页面只展示 GitHub Actions 抓取的真实公示数据。
+// 数据未就绪时由加载态占位，加载失败显示错误提示，绝不用虚构资费冒充。
+let DATA=[], HISTORY=[];
+let loadState='loading'; // loading | ready | error | empty
 
 /* ---------- 状态 ---------- */
 /* 记住选择：localStorage + URL 地址栏双保险。
@@ -513,7 +458,7 @@ function currentRows(){
   if(state.zeroOnly) rows=rows.filter(d=>d.price===0);
   if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
   const q=state.q.trim().toLowerCase();
-  // 覆盖全部字段：adaptRemote 已预计算 _hay；示例数据缺索引时按需补一次
+  // 覆盖全部字段：adaptRemote 已预计算 _hay；缺索引时按需补一次
   if(q) rows=rows.filter(d=>{
     if(!d._hay){
       const e=d.extra||{};
@@ -644,7 +589,7 @@ function renderOverview(){
   const provChanges=HISTORY.filter(h=>h.op===state.op&&h.province===state.prov&&h.date>=since).length;
   const max=Math.max(1,...cats.map(c=>c[1]));
   $('view').innerHTML=
-    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(window.__meta?'':'（示例数据）')+'</p>'+
+    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览</p>'+
     '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
     '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
     '<div class="kpi-grid">'+
@@ -665,7 +610,7 @@ function renderOverview(){
 function renderListPage(withProv){
   const rows=currentRows();
   const title=state.tab==='national'?'全国资费':'省份资费 · '+state.prov;
-  const desc=state.tab==='national'?('各运营商官网公示的全国通用资费'+(window.__meta?'':'（示例）')):('以官网「适用地区」字段为准，默认江西'+(window.__meta?'':'（示例）'));
+  const desc=state.tab==='national'?'各运营商官网公示的全国通用资费':'以官网「适用地区」字段为准，默认江西';
   $('view').innerHTML='<div class="card section"><div class="card-head"><h3 class="card-title">'+title+' <span class="pill">'+CARRIERS[state.op].name+'</span></h3><span class="card-desc">'+desc+'</span></div>'+
     filtersHTML(withProv)+'<div id="resultArea">'+cardsHTML(rows)+'</div></div>';
   bindFilters(withProv);bindTable();
@@ -1055,9 +1000,31 @@ function renderAbout(){
   const meta=window.__meta;
   if($('aboutStatus')) $('aboutStatus').innerHTML = meta
     ? '<span class="pill">当前：真实数据</span> 共 '+meta.count+' 条资费，覆盖 '+Object.keys(meta.by_province||{}).length+' 个地区，最近更新 '+meta.timestamp+'。'
-    : '<span class="pill">当前：内置示例数据</span> 未检测到线上数据文件。';
+    : '<span class="pill">当前：数据未就绪</span> 正在加载或暂时无法读取线上数据，本页不使用示例数据。';
+}
+// 数据未就绪时，依赖数据的页签统一显示加载 / 失败态，绝不用空表格或示例数据糊弄
+function renderLoadState(){
+  const ops=OPS.map(op=>{
+    const done=!!opState[op], failed=failedOps.has(op);
+    const cls=failed?'':(done?' on':'');
+    const mark=failed?'✕':(done?'✓':'…');
+    return '<span class="load-step'+cls+'">'+mark+' '+opName(op)+'</span>';
+  }).join('');
+  const failed=loadState==='error';
+  $('view').innerHTML='<div class="card section"><div class="load-state">'+
+    (failed?'<div class="load-icon">⚠</div>':'<div class="load-spinner"></div>')+
+    '<div class="load-title">'+(failed?'资费数据加载失败':'正在加载真实资费数据…')+'</div>'+
+    '<div class="load-desc">'+(failed
+      ? '暂时无法从线上读取资费数据，请检查网络后重试。<br>本页只展示运营商官网公示的真实数据，不会用示例数据冒充。'
+      : '正在从 GitHub 读取官方公示的资费数据，首次加载约需十几秒，请稍候。<br>本页只展示真实数据，不使用任何示例或虚构资费。')+'</div>'+
+    '<div class="load-steps">'+ops+'</div>'+
+    (failed?'<div class="load-retry"><button class="btn btn-primary" id="loadRetry">↻ 重新加载</button></div>':'')+
+    '</div></div>';
+  const r=$('loadRetry');if(r)r.addEventListener('click',()=>$('reloadBtn').click());
 }
 function render(){
+  const dataTab=['overview','national','province','search','history'].indexOf(state.tab)>=0;
+  if(dataTab&&loadState!=='ready'){renderLoadState();return;}
   if(state.tab==='overview') renderOverview();
   else if(state.tab==='national') renderListPage(false);
   else if(state.tab==='province') renderListPage(true);
@@ -1220,10 +1187,8 @@ $('reloadBtn').addEventListener('click',async()=>{
   finally{btn.textContent=old;btn.disabled=false;startPolling();}
 });
 $('checkBtn').addEventListener('click',async()=>{
-  const real=$('dataTag').textContent==='真实数据';
-  if(!real){
-    const n=HISTORY.filter(h=>h.op===state.op).length;
-    $('checkResult').innerHTML='<b>检测完成</b>（'+CARRIERS[state.op].name+'）<br>示例变更记录：'+n+' 条<br><span class="muted">当前为示例数据，检测结果仅作演示。</span>';
+  if(loadState!=='ready'){
+    $('checkResult').innerHTML='<b>数据尚未就绪</b><br><span class="muted">正在加载或暂时无法读取线上数据，请稍后重试。本页不使用示例数据。</span>';
     openModal('checkModal');return;
   }
   $('checkResult').innerHTML='<b>检测完成</b>（'+CARRIERS[state.op].name+'）<br>正在查询最新变更…';
@@ -1394,6 +1359,7 @@ function applyData(label){
   window.__meta=meta; combinedMeta=meta;
   DATA=adaptRemote(items);
   HISTORY=adaptHistory(hist);
+  loadState='ready'; // 已有真实数据，解除加载态
   const tag=$('dataTag');
   tag.textContent=label||'真实数据';
   if(label==='真实数据'||!label){tag.style.background='#dcfce7';tag.style.color='#166534';}
@@ -1462,9 +1428,11 @@ function startPolling(){
     }catch(e){}
   },30000); // 30 秒探测一次，各家 meta 仅几十字节
 }
-function showSampleNotice(){
-  const tag=$('dataTag');tag.textContent='示例数据';tag.style.background='';tag.style.color='';
-  $('notice').textContent='当前展示内置示例数据（未能加载线上数据）。实际资费以运营商官网与营业厅公示为准。';
+function showLoadError(){
+  loadState='error';
+  const tag=$('dataTag');tag.textContent='加载失败';tag.style.background='#fee2e2';tag.style.color='#991b1b';
+  $('notice').textContent='资费数据暂时无法加载。本页只展示运营商官网公示的真实数据，未使用任何示例数据；请点「刷新数据」重试。';
+  render();
 }
 async function loadData(){
   // 1) 读 IndexedDB 缓存（异步），命中即秒开。缓存带版本/过期/结构校验，脏快照不会命中。
@@ -1491,9 +1459,9 @@ async function loadData(){
     const label=cached?'更新中':'真实数据';
     const n=await refreshOps(changed,()=>applyData(label));
     if(n){writeCache();applyData(label);}
-    else if(!cached){showSampleNotice();return;}
+    else if(!cached){showLoadError();return;}
   }else if(!cached){
-    showSampleNotice();return;
+    showLoadError();return;
   }
   // 有缓存但本轮全部探测失败：保留缓存数据，但明确标注"离线快照"，不谎称最新
   if(cached&&!changed.length){
