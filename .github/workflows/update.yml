@@ -30,18 +30,23 @@ jobs:
           - carrier: mobile
             shard_idx: 0
             shard_total: 1
+            label: 移动
           - carrier: telecom
             shard_idx: 0
             shard_total: 1
+            label: 电信
           - carrier: gb
             shard_idx: 0
             shard_total: 1
+            label: 广电
           - carrier: unicom
             shard_idx: 0
             shard_total: 2
+            label: 联通·片0
           - carrier: unicom
             shard_idx: 1
             shard_total: 2
+            label: 联通·片1
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -82,7 +87,6 @@ jobs:
 
       # 边跑边同步：本片抓完立即发布 live 文件，网页按板块覆盖基底数据，
       # 用户几分钟内就能看到已完成的运营商，不用等最慢的联通。
-      # 变化推送仍在 merge 统一做，避免不完整数据误报下架。
       - name: 发布实时分片（网页渐进可见）
         run: |
           SHARD=${{ matrix.carrier }}-${{ matrix.shard_idx }}
@@ -103,6 +107,44 @@ jobs:
               sleep 3
             done
           fi
+
+      # 分段 diff + 即时推送：diff 限定在本片成功抓到的板块内，下架判定仍是
+      # 板块内闭环，不会把其他运营商/失败板块误判成下架。推送失败不阻断抓取，
+      # emit 的清单作为 artifact 交给 merge 兜底时精确剔除。
+      - name: 分段差异检测
+        run: |
+          SHARD=${{ matrix.carrier }}-${{ matrix.shard_idx }}
+          mkdir -p changes
+          python3 scripts/diff_shard.py --raw raw/$SHARD.json \
+            --prev data/items.json --out changes/$SHARD.json
+
+      - name: 即时推送本片变化
+        id: shard_notify
+        continue-on-error: true     # 推送失败不阻断数据，merge 会兜底补推
+        env:
+          WATCH_RULES: ${{ vars.WATCH_RULES || 'mobile:*;telecom:*' }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          SHARD=${{ matrix.carrier }}-${{ matrix.shard_idx }}
+          mkdir -p pushed
+          python3 scripts/notify_dingtalk.py \
+            --input changes/$SHARD.json \
+            --state data/.notify_state_$SHARD.json \
+            --emit-pushed pushed/$SHARD.json \
+            --tag '${{ matrix.label }}' \
+            > notify_$SHARD.log 2>&1 || { cat notify_$SHARD.log; exit 1; }
+          cat notify_$SHARD.log
+
+      - name: 上传本片推送清单
+        uses: actions/upload-artifact@v4
+        with:
+          name: pushed-${{ matrix.carrier }}-${{ matrix.shard_idx }}
+          path: pushed/${{ matrix.carrier }}-${{ matrix.shard_idx }}.json
+          retention-days: 1
+          if-no-files-found: ignore
 
   merge:
     needs: scrape
@@ -128,6 +170,14 @@ jobs:
           pattern: raw-*
           path: raw
           merge-multiple: true
+
+      - name: 下载各片推送清单（供兜底去重）
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pushed-*
+          path: pushed
+          merge-multiple: true
+        continue-on-error: true   # 全部推送失败时无清单，属预期
 
       - name: 合并 + 差异对比
         run: python3 scripts/build_data.py --merge-from raw --out data
@@ -155,9 +205,11 @@ jobs:
               len(items), meta.get('changes', 0), meta.get('by_op')))
           PY
 
-      # 钉钉提醒：Secrets: DINGTALK_WEBHOOK / DINGTALK_SECRET；
-      # Variables: WATCH_RULES、DINGTALK_AT_MOBILES、SITE_URL（也可由网页订阅页同步）
-      - name: 推送钉钉变动提醒
+      # 兜底推送：各 scrape 片已即时推过本片变化，这里只补推「漏网的」——
+      # 用分片 emit 的清单做 exclude，命中规则但未被任何分片推送的变化才会发。
+      # 若某片抓取失败（无变化产出）或推送失败（无清单），其变化会在此补推。
+      # Secrets: DINGTALK_WEBHOOK / DINGTALK_SECRET；Variables: WATCH_RULES 等。
+      - name: 推送钉钉变动提醒（兜底补漏）
         continue-on-error: true
         env:
           WATCH_RULES: ${{ vars.WATCH_RULES || 'mobile:*;telecom:*' }}
@@ -165,7 +217,14 @@ jobs:
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           SITE_URL: ${{ vars.SITE_URL }}
-        run: python3 scripts/notify_dingtalk.py --input data/current_changes.json
+        run: |
+          EXCLUDE_ARGS=""
+          for f in pushed/*.json; do
+            [ -f "$f" ] && EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $f"
+          done
+          echo "兜底剔除清单：$EXCLUDE_ARGS"
+          python3 scripts/notify_dingtalk.py --input data/current_changes.json \
+            --state data/.notify_state.json --tag '完整数据补推' $EXCLUDE_ARGS
 
       - name: 提交数据
         run: |
@@ -177,5 +236,11 @@ jobs:
             echo "无数据变化，跳过提交"
           else
             git commit -m "chore: 自动更新资费数据 $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
-            git push
+            # scrape 片期间已多次 push live 文件，本地可能落后，rebase 重试
+            for i in 1 2 3 4 5 6; do
+              if git push; then echo "数据已提交"; break; fi
+              echo "push 冲突，rebase 后重试($i/6)"
+              git pull --rebase origin main || git rebase --abort || true
+              sleep 3
+            done
           fi

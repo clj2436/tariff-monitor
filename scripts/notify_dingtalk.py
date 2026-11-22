@@ -21,6 +21,12 @@
         mobile:*;telecom:*        （移动和电信的全部省份）
         *:新疆                    （所有运营商的新疆）
 
+分片即时推送（并行分片架构）：
+  --tag '移动·片0'          在消息里标注来源分片，便于区分先后推送
+  --exclude a.json b.json   剔除这些文件里「已成功推送」的变化（merge 兜底用）
+  --emit-pushed FILE        把本次实际推送成功的变化写出，供 merge 汇总剔除
+  去重按「单条变化内容指纹」而非整批：分片与 merge 产出细节不同也能正确去重。
+
 本地预览（不需要 Webhook）：
   python3 scripts/notify_dingtalk.py --dry-run
   python3 scripts/notify_dingtalk.py --dry-run --rules 'telecom:新疆'
@@ -134,7 +140,15 @@ def describe(change):
     return " · ".join(parts) if parts else "资费详情有调整，详见运营商官网"
 
 
-def build_markdown(changes, rules, site_url, max_items):
+def change_fingerprint(h):
+    """单条变化的内容指纹。忽略 id/date 等易变字段——分片 diff 与 merge diff
+    产出的同一条变化，仅 id 生成时机不同，去掉后指纹一致，去重才可靠。"""
+    clean = {k: v for k, v in h.items() if k not in ("id", "date")}
+    payload = json.dumps(clean, ensure_ascii=False, sort_keys=True)
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def build_markdown(changes, rules, site_url, max_items, tag=""):
     scope = " / ".join(
         "%s·%s" % (OP_NAME.get(op, op), pv.replace("*", "全部")) for op, pv in rules
     ) or "全部"
@@ -142,8 +156,9 @@ def build_markdown(changes, rules, site_url, max_items):
     for h in changes:
         groups.setdefault(h.get("kind", "修改"), []).append(h)
     counts = " / ".join("%s %d" % (k, len(groups[k])) for k in ("新增", "修改", "下架"))
+    header = "### 🔔 资费变动提醒" + (" · %s" % tag if tag else "")
     lines = [
-        "### 🔔 资费变动提醒",
+        header,
         "> 关注范围：%s  \n> 本轮命中 **%d** 条（%s）" % (scope, len(changes), counts),
     ]
     shown = 0
@@ -297,7 +312,13 @@ def main():
     ap.add_argument("--config", default=os.environ.get("WATCH_CONFIG", "data/watch_config.json"),
                     help="网页同步的关注规则配置文件（优先于 --rules）")
     ap.add_argument("--state", default=os.environ.get("NOTIFY_STATE", "data/.notify_state.json"),
-                    help="推送指纹状态文件，用于去重")
+                    help="已推送指纹状态文件，用于去重（分片各用独立文件避免并发写冲突）")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="已成功推送的变化 json，剔除其中指纹（可多次指定；merge 兜底用）")
+    ap.add_argument("--emit-pushed", default="",
+                    help="把本次实际推送成功/预览的变化写出 json，供 merge 汇总剔除")
+    ap.add_argument("--tag", default=os.environ.get("NOTIFY_TAG", ""),
+                    help="消息来源标注，如「移动·片0」")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
     ap.add_argument("--max-items", type=int, default=int(os.environ.get("NOTIFY_MAX_ITEMS", "30")))
     args = ap.parse_args()
@@ -318,19 +339,31 @@ def main():
         print("本轮 %d 条变更均未命中关注规则，跳过推送。" % len(changes))
         return 0
 
-    # 指纹去重：同一批变更已被推送过则跳过，避免 Actions 重跑/手动触发重复打扰
-    fingerprint = hashlib.md5(
-        json.dumps(sorted([json.dumps(h, ensure_ascii=False, sort_keys=True) for h in hit]),
-                   ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
+    # 指纹去重：按单条变化的内容指纹集合。分片各自推送不同板块，指纹不同；
+    # merge 兜底读取各分片 emit 的已推指纹，只补推真正漏掉的部分。
+    # 兼容旧格式：旧 state 只有一个整批 fingerprint，读进来当单条指纹。
+    seen = set()
     try:
         with open(args.state, encoding="utf-8") as f:
-            prev_fp = (json.load(f) or {}).get("fingerprint")
+            st = json.load(f) or {}
+        if isinstance(st.get("fingerprints"), list):
+            seen.update(str(x) for x in st["fingerprints"])
+        elif st.get("fingerprint"):
+            seen.add(str(st["fingerprint"]))
     except (FileNotFoundError, ValueError, OSError):
-        prev_fp = None
-    if prev_fp == fingerprint:
-        print("本批变更与上次推送内容相同，跳过重复推送。")
+        pass
+    # --exclude 文件里的变化视为已推（merge 兜底用）
+    for path in args.exclude:
+        for ex in load_changes(path):
+            seen.add(change_fingerprint(ex))
+
+    fresh = [h for h in hit if change_fingerprint(h) not in seen]
+    if not fresh:
+        print("本轮 %d 条命中均已推送过（去重/兜底剔除），跳过。" % len(hit))
+        # 仍导出清单：告诉 merge 兜底「本片变化已处理」，避免 re-run 时兜底重复推
+        _emit(args.emit_pushed, hit)
         return 0
+    hit = fresh
 
     # 配置项覆盖环境变量（at_mobiles / max_items）
     max_items = int(cfg.get("max_items", args.max_items)) if cfg else args.max_items
@@ -341,29 +374,45 @@ def main():
         at = [str(m).strip() for m in at_mobiles if str(m).strip()]
     site_url = (cfg.get("site_url") if cfg and cfg.get("site_url") else "") or os.environ.get("SITE_URL", "")
 
-    text = build_markdown(hit, rules, site_url, max_items)
+    text = build_markdown(hit, rules, site_url, max_items, tag=args.tag)
     if at:
         text += "\n\n" + " ".join("@" + m for m in at)
 
     if args.dry_run:
         print("--- 预览：%d/%d 条命中 ---" % (len(hit), len(changes)))
         print(text)
+        _emit(args.emit_pushed, hit)
         return 0
     webhook = os.environ.get("DINGTALK_WEBHOOK", "")
     if not webhook:
         print("未配置 DINGTALK_WEBHOOK，跳过推送（可用 --dry-run 预览）。")
         return 0
     send(webhook, os.environ.get("DINGTALK_SECRET", ""), text, at)
-    # 推送成功后写入指纹
+    # 推送成功后累加指纹（保留已推集合，去重跨轮生效）
+    seen.update(change_fingerprint(h) for h in hit)
     try:
         os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
         with open(args.state, "w", encoding="utf-8") as f:
-            json.dump({"fingerprint": fingerprint, "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            json.dump({"fingerprints": sorted(seen), "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                        "count": len(hit)}, f, ensure_ascii=False)
     except OSError as e:
         print("写入推送指纹失败（不影响推送）：%s" % e, file=sys.stderr)
-    print("钉钉提醒已推送：%d 条命中变更。" % len(hit))
+    _emit(args.emit_pushed, hit)
+    print("钉钉提醒已推送：%d 条命中变更%s。" % (len(hit), ("（%s）" % args.tag) if args.tag else ""))
     return 0
+
+
+def _emit(path, changes):
+    """把本次实际推送的变化写出，供 merge 兜底时精确剔除。"""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(changes, f, ensure_ascii=False)
+        print("已写出推送清单：%s（%d 条）" % (path, len(changes)))
+    except OSError as e:
+        print("写出推送清单失败：%s" % e, file=sys.stderr)
 
 
 if __name__ == "__main__":
