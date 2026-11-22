@@ -63,6 +63,8 @@ button{cursor:pointer}
 .kpi-label{color:var(--muted);font-size:12px}
 .kpi-val{font-size:26px;font-weight:750;margin:6px 0 2px;line-height:1.1;letter-spacing:-.4px}
 .kpi-foot{color:var(--muted);font-size:11px}
+.kpi-action{margin-top:10px}
+.kpi-action .btn{font-size:11.5px;padding:5px 9px}
 .overview-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
 .dist{padding:16px 18px}
 .dist-row{display:grid;grid-template-columns:82px 1fr 44px;align-items:center;gap:10px;margin-bottom:13px}
@@ -72,10 +74,15 @@ button{cursor:pointer}
 .dist-fill{height:100%;border-radius:99px;background:var(--blue)}
 .dist-val{text-align:right;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
 .prov-list{padding:8px 18px 14px}
+/* 省份统计：全部省份用两列铺开，避免只看到一部分 */
+.prov-list.all{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;padding:8px 18px 14px}
 .prov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12.5px}
-.prov-item:last-child{border-bottom:0}
+.prov-item:last-child,.prov-item:nth-last-child(2){border-bottom:0}
 .prov-item b{font-variant-numeric:tabular-nums}
 .prov-more{text-align:center;color:var(--blue);font-size:12px;padding:10px;cursor:pointer;font-weight:600}
+.prov-pick{cursor:pointer;border-radius:5px;padding-left:6px;padding-right:6px;transition:.15s}
+.prov-pick:hover{background:var(--blue-soft);color:var(--blue)}
+.prov-pick.on{color:var(--blue);font-weight:700}
 
 /* 筛选栏 */
 .filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);margin-bottom:14px}
@@ -567,22 +574,27 @@ function renderOverview(){
   const prov=opData.filter(d=>d.scope==='省份'&&d.province===state.prov);
   const cats=TYPES.flatMap(t=>OWNERS.map(o=>[t+'/'+o,prov.filter(d=>d.cat===t+'/'+o).length]));
   const provCount=PROVINCES.slice(1).map(p=>[p,pv.filter(d=>d.province===p).length]).sort((a,b)=>b[1]-a[1]);
+  const since=(new Date(Date.now()-30*864e5)).toISOString().slice(0,10);
+  const provChanges=HISTORY.filter(h=>h.op===state.op&&h.province===state.prov&&h.date>=since).length;
   const max=Math.max(1,...cats.map(c=>c[1]));
   $('view').innerHTML=
     '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(window.__meta?'':'（示例数据）')+'</p>'+
     '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
     '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
     '<div class="kpi-grid">'+
-    '<div class="kpi" style="--accent:'+CARRIERS[state.op].color+'"><div class="kpi-label">当前省份</div><div class="kpi-val" style="font-size:22px">'+state.prov+'</div><div class="kpi-foot">点击顶部「切换」或省份资费页可更换</div></div>'+
+    '<div class="kpi" style="--accent:'+CARRIERS[state.op].color+'"><div class="kpi-label">当前省份</div><div class="kpi-val" style="font-size:22px">'+state.prov+'</div><div class="kpi-foot">'+CARRIERS[state.op].name+' · 可一键切换省份 / 运营商</div><div class="kpi-action"><button class="btn" id="kpiSwitch">切换省份 / 运营商 ▾</button></div></div>'+
     '<div class="kpi" style="--accent:#2563eb"><div class="kpi-label">本省资费总数</div><div class="kpi-val">'+prov.length+'</div><div class="kpi-foot">含套餐 / 加装包 / 营销活动</div></div>'+
     '<div class="kpi" style="--accent:#7c3aed"><div class="kpi-label">零元业务</div><div class="kpi-val">'+prov.filter(d=>d.price===0).length+'</div><div class="kpi-foot">本省免费或赠送类资费</div></div>'+
-    '<div class="kpi" style="--accent:#f59e0b"><div class="kpi-label">近30天变更</div><div class="kpi-val">'+HISTORY.filter(h=>h.op===state.op&&h.date>=new Date(Date.now()-30*864e5).toISOString().slice(0,10)).length+'</div><div class="kpi-foot">见「变化历史」时间线</div></div></div>'+
+    '<div class="kpi" style="--accent:#f59e0b"><div class="kpi-label">本省近30天变更</div><div class="kpi-val">'+provChanges+'</div><div class="kpi-foot">仅统计 '+state.prov+' · 见「变化历史」</div></div></div>'+
     '<div class="overview-grid"><div class="card section"><div class="card-head"><h3 class="card-title">六大类分布 <span class="pill">'+state.prov+'</span></h3><span class="card-desc">本省资费总数 '+prov.length+'</span></div><div class="dist">'+
     cats.map(([c,n])=>'<div class="dist-row"><span class="dist-name">'+c+'</span><div class="dist-track"><div class="dist-fill" style="width:'+(n/max*100)+'%;background:'+CARRIERS[state.op].color+'"></div></div><span class="dist-val">'+n+'</span></div>').join('')+
-    '</div></div><div class="card section"><div class="card-head"><h3 class="card-title">省份资费统计</h3><span class="card-desc">按收录数量排序</span></div><div class="prov-list">'+
-    provCount.slice(0,12).map(([p,n])=>'<div class="prov-item"><span>'+p+(p===state.prov?' <span class="pill">当前</span>':'')+'</span><b>'+n+'</b></div>').join('')+
-    '<div class="prov-more" id="toProv">查看全部省份 →</div></div></div></div>';
-  $('toProv').addEventListener('click',()=>{state.tab='province';renderNav();render();});
+    '</div></div><div class="card section"><div class="card-head"><h3 class="card-title">省份资费统计 <span class="pill">全部 '+provCount.length+' 省</span></h3><span class="card-desc">按收录数量排序 · 点击省份直接切换</span></div><div class="prov-list all">'+
+    provCount.map(([p,n])=>'<div class="prov-item prov-pick'+(p===state.prov?' on':'')+'" data-pick="'+p+'" title="切换到'+p+'"><span>'+p+(p===state.prov?' <span class="pill">当前</span>':'')+'</span><b>'+n+'</b></div>').join('')+
+    '</div></div></div></div>';
+  $('kpiSwitch').addEventListener('click',openSwitchModal);
+  $('view').querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>{
+    state.prov=el.dataset.pick;state.page=1;updateSwitchLabel();render();toast('已切换到'+state.prov);
+  }));
 }
 function renderListPage(withProv){
   const rows=currentRows();
@@ -958,8 +970,13 @@ function renderProvGrid(q='',targetId='provGrid',inputId='provSearch'){
 }
 function openProvinceModal(){renderProvGrid('','provGrid','provSearch');$('provSearch').value='';openModal('provinceModal');}
 function openSwitchModal(){
-  renderCarrierOpts();renderProvGrid($('provSearch2').value,'provGrid2','provSearch2');
+  // 每次打开都重置：清空省份搜索、恢复完整省份列表、回到弹窗顶部，
+  // 避免上次残留的搜索/滚动让人卡在省份区域、看不到上方的运营商切换。
+  $('provSearch2').value='';
+  renderCarrierOpts();renderProvGrid('','provGrid2','provSearch2');
   openModal('carrierModal');
+  const body=$('carrierModal').querySelector('.modal-body');
+  if(body) body.scrollTop=0;
 }
 let detailId=null;
 function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
