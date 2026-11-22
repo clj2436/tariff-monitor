@@ -98,6 +98,7 @@ jobs:
           python3 scripts/build_data.py --carriers mobile \
             --merge-from /tmp/mobile-shards \
             --out data/ops/mobile \
+            --baseline-if-empty \
             --baseline-provinces '北京,天津,辽宁,吉林,黑龙江,浙江,湖北,重庆,四川,陕西,甘肃,青海,宁夏'
 
       - name: 校验本家数据
@@ -127,7 +128,6 @@ jobs:
           WATCH_RULES: ${{ vars.WATCH_RULES || 'mobile:*' }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}

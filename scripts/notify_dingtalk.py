@@ -10,7 +10,6 @@
   NOTIFY_CHANNELS      可选，逗号分隔：dingtalk,feishu,wecom,email 或 all；默认 dingtalk
   DINGTALK_WEBHOOK     钉钉群机器人 Webhook（含 access_token）
   DINGTALK_SECRET      钉钉加签密钥（机器人安全设置为「加签」时填）
-  DINGTALK_AT_MOBILES  可选，逗号分隔的手机号，钉钉推送时 @ 这些人
   FEISHU_WEBHOOK       飞书自定义机器人 Webhook
   FEISHU_SECRET        飞书签名校验密钥（可选）
   WECOM_WEBHOOK        企业微信群机器人 Webhook
@@ -216,15 +215,13 @@ def _is_ratelimit(http_err=None, result=None):
     return False
 
 
-def send(webhook, secret, text, at_mobiles, max_retries=4):
+def send(webhook, secret, text, max_retries=4):
     """发送钉钉消息；遇限流按 2/4/8/16s 指数退避重试，最多 max_retries 次。
 
     加签时间戳每次重试都重新生成——钉钉对 timestamp 有 1 小时有效性校验，
     且退避重试可能跨越秒边界，复用旧签名会被判为非法。
     """
     payload = {"msgtype": "markdown", "markdown": {"title": "资费变动提醒", "text": text}}
-    if at_mobiles:
-        payload["at"] = {"atMobiles": at_mobiles, "isAtAll": False}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     last = None
     for attempt in range(max_retries + 1):
@@ -452,7 +449,7 @@ def send_email(title, text):
     return True
 
 
-def send_all(channels, title, text, at_mobiles):
+def send_all(channels, title, text):
     """向所有选中且已配置的通道推送；返回 [(通道, 成功?, 说明)]。"""
     results = []
     for ch in channels:
@@ -462,7 +459,7 @@ def send_all(channels, title, text, at_mobiles):
                 print("[钉钉] 未配置 DINGTALK_WEBHOOK，跳过")
                 continue
             try:
-                send(webhook, os.environ.get("DINGTALK_SECRET", "").strip(), text, at_mobiles)
+                send(webhook, os.environ.get("DINGTALK_SECRET", "").strip(), text)
                 results.append(("钉钉", True, "已发送"))
             except Exception as e:
                 results.append(("钉钉", False, str(e)))
@@ -507,7 +504,6 @@ def rules_from_config(config_path):
         "version": 1,
         "rules": [{"op": "mobile", "provinces": ["江西", "北京"]},
                   {"op": "telecom", "provinces": ["新疆"]}],
-        "at_mobiles": ["138..."],   # 可选，覆盖环境变量
         "max_items": 30             # 可选，覆盖环境变量
       }
     返回 (rules, config_dict)；文件不存在/格式错误时返回 ([], {})。
@@ -562,6 +558,8 @@ def main():
                     help="忽略网页配置文件，只用 --rules / WATCH_RULES（专项抓取源固定推送范围时用）")
     ap.add_argument("--state", default=os.environ.get("NOTIFY_STATE", "data/.notify_state.json"),
                     help="已推送指纹状态文件，用于去重（分片各用独立文件避免并发写冲突）")
+    ap.add_argument("--status-out", default=os.environ.get("PUSH_STATUS_OUT", ""),
+                    help="推送状态文件路径，默认写在 --state 同目录的 push_status.json，供网页展示钉钉机器人状态")
     ap.add_argument("--exclude", action="append", default=[],
                     help="已成功推送的变化 json，剔除其中指纹（可多次指定；merge 兜底用）")
     ap.add_argument("--emit-pushed", default="",
@@ -581,18 +579,22 @@ def main():
         md = ("## ✅ 配置成功\n\n"
               "你的资费变动提醒已成功接入本通道。\n\n"
               "下次抓取到资费变化后，消息会自动推送到这里。")
-        results = send_all(channels, title, md, [])
+        results = send_all(channels, title, md)
         if not results:
+            write_push_status(args, "noconfig", detail="通道测试：未配置任何通道")
             print("❌ 没有已配置的通道。请检查 Secrets：DINGTALK_WEBHOOK / FEISHU_WEBHOOK / "
                   "WECOM_WEBHOOK / SMTP_HOST 等。")
             return 1
         ok = [n for n, success, _ in results if success]
+        write_push_status(args, "ok" if ok else "fail", detail="通道测试",
+                          channels=[n for n, _, _ in results])
         print("\n测试完成：成功 %d / 已配置 %d（%s）" %
               (len(ok), len(results), "、".join(ok) if ok else "全部失败"))
         return 0 if ok else 1
 
     changes = load_changes(args.input)
     if not changes:
+        write_push_status(args, "skip", detail="本轮无变更")
         print("本轮无变更，跳过推送。")
         return 0
 
@@ -601,6 +603,7 @@ def main():
     # --force-rules：规则只用 --rules/WATCH_RULES，但仍读配置文件的 @/上限/站点设置
     rules = parse_rules(args.force_rules) if args.force_rules else (cfg_rules or parse_rules(args.rules))
     if not rules:
+        write_push_status(args, "skip", detail="关注规则为空")
         print("关注规则为空，跳过推送。")
         return 0
     hit = [h for h in changes if matched(h, rules)]
@@ -612,6 +615,7 @@ def main():
         if before != len(hit):
             print("排除规则剔除 %d 条（由专项源负责推送）" % (before - len(hit)))
     if not hit:
+        write_push_status(args, "skip", count=len(changes), detail="未命中关注规则或被排除")
         print("本轮 %d 条变更均未命中关注规则（或全被排除），跳过推送。" % len(changes))
         return 0
 
@@ -635,24 +639,18 @@ def main():
 
     fresh = [h for h in hit if change_fingerprint(h) not in seen]
     if not fresh:
+        write_push_status(args, "skip", count=len(hit), detail="命中变化均已推送过（去重）")
         print("本轮 %d 条命中均已推送过（去重/兜底剔除），跳过。" % len(hit))
         # 仍导出清单：告诉 merge 兜底「本片变化已处理」，避免 re-run 时兜底重复推
         _emit(args.emit_pushed, hit)
         return 0
     hit = fresh
 
-    # 配置项覆盖环境变量（at_mobiles / max_items）
+    # max_items / site_url：配置文件优先，环境变量兜底
     max_items = int(cfg.get("max_items", args.max_items)) if cfg else args.max_items
-    at_mobiles = cfg.get("at_mobiles") if (cfg and cfg.get("at_mobiles") is not None) else None
-    if at_mobiles is None:
-        at = [m.strip() for m in os.environ.get("DINGTALK_AT_MOBILES", "").split(",") if m.strip()]
-    else:
-        at = [str(m).strip() for m in at_mobiles if str(m).strip()]
     site_url = (cfg.get("site_url") if cfg and cfg.get("site_url") else "") or os.environ.get("SITE_URL", "")
 
     text = build_markdown(hit, rules, site_url, max_items, tag=args.tag)
-    if at:
-        text += "\n\n" + " ".join("@" + m for m in at)
 
     if args.dry_run:
         print("--- 预览：%d/%d 条命中 ---" % (len(hit), len(changes)))
@@ -660,12 +658,16 @@ def main():
         _emit(args.emit_pushed, hit)
         return 0
     title = "资费变动提醒" + (" · %s" % args.tag if args.tag else "")
-    results = send_all(channels, title, text, at)
+    results = send_all(channels, title, text)
     if not results:
+        write_push_status(args, "noconfig", count=len(hit), detail="未配置任何通知通道")
         print("未配置任何通知通道，跳过推送（可用 --dry-run 预览、--test 自检）。")
         return 0
+    names = [n for n, _, _ in results]
     if not any(ok for _, ok, _ in results):
+        write_push_status(args, "fail", count=len(hit), detail="所有已配置通道推送失败", channels=names)
         raise RuntimeError("所有已配置通道均推送失败，本轮不写入去重状态，下轮会重试")
+    write_push_status(args, "ok", count=len(hit), channels=names)
     # 任一通道推送成功即累加指纹（保留已推集合，去重跨轮生效）
     seen.update(change_fingerprint(h) for h in hit)
     try:
@@ -679,6 +681,45 @@ def main():
     print("提醒已推送（%s）：%d 条命中变更%s。" %
           ("/".join(n for n, _, _ in results), len(hit), ("（%s）" % args.tag) if args.tag else ""))
     return 0
+
+
+def write_push_status(args, status, count=0, detail="", channels=None):
+    """记录每次通知的运行状态到 <state目录>/push_status.json，供网页展示钉钉机器人状态。
+
+    status: ok 成功 / fail 失败 / skip 无需推送 / noconfig 未配置通道 / test 测试。
+    只保留最近 30 条；任何写入异常都不影响推送本身。
+    """
+    if getattr(args, "dry_run", False):
+        return  # 本地预览不污染线上状态文件
+    path = getattr(args, "status_out", "")
+    if not path and getattr(args, "state", ""):
+        path = os.path.join(os.path.dirname(args.state) or ".", "push_status.json")
+    if not path:
+        return
+    rec = {
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "tag": getattr(args, "tag", "") or "",
+        "status": status,
+        "count": int(count),
+        "detail": str(detail)[:300],
+        "channels": channels or [],
+        # 只上报是否配置，绝不写入 webhook / 密钥明文
+        "dingtalk": bool(os.environ.get("DINGTALK_WEBHOOK", "").strip()),
+    }
+    try:
+        hist = []
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                hist = loaded
+        hist.insert(0, rec)
+        hist = hist[:30]
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(hist, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("写入推送状态失败（不影响推送）：%s" % e, file=sys.stderr)
 
 
 def _emit(path, changes):

@@ -54,6 +54,7 @@ button{cursor:pointer}
 .hero::after{content:"";position:absolute;right:-50px;top:-80px;width:260px;height:260px;border-radius:50%;background:rgba(255,255,255,.09)}
 .hero h2{margin:0;font-size:20px;font-weight:750}
 .hero p{margin:6px 0 0;font-size:12.5px;opacity:.88}
+.hero-offline-tip{color:#dc2626;background:#fff;border:1px solid rgba(255,255,255,.7);padding:1px 8px;border-radius:6px;font-weight:700}
 .hero-stats{display:flex;gap:34px;margin-top:18px;flex-wrap:wrap;position:relative}
 .hero-stats b{display:block;font-size:23px;font-weight:750;line-height:1.2}
 .hero-stats span{font-size:11.5px;opacity:.84}
@@ -86,8 +87,12 @@ button{cursor:pointer}
 
 /* 筛选栏 */
 .filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow);margin-bottom:14px}
-select,input[type=text]{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none}
+select,input[type=text],input[type=number]{border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none}
 select:focus,input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+.price-range{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.price-range input{width:86px;padding:7px 8px}
+.price-range span{color:var(--muted);font-size:12px}
+.price-range .price-unit{margin-left:1px}
 .search{position:relative;display:flex;align-items:center}
 .search input{padding-left:29px;width:200px}
 .search::before{content:"⌕";position:absolute;left:10px;color:var(--muted);font-size:16px;pointer-events:none}
@@ -143,6 +148,19 @@ tbody tr:hover{background:var(--card2)}
 .sub-sec{padding:16px 18px}
 .sub-sec h4{margin:0 0 4px;font-size:13.5px;font-weight:700}
 .sub-hint{font-size:11.5px;color:var(--muted);margin:0 0 14px;line-height:1.6}
+.pwd-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;background:var(--card2);border:1px dashed var(--border);border-radius:9px}
+.pwd-bar input{width:180px}
+.bot-config{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.bot-status{margin-top:8px;font-size:12px}
+.bot-state{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.bot-status .pub-table{font-size:11.5px}
+.bot-status .pub-table th,.bot-status .pub-table td{padding:6px 8px}
+.push-ok{color:#15803d;font-weight:700}
+.push-err{color:#b91c1c;font-weight:700}
+.push-warn{color:#b45309;font-weight:700}
+.push-muted{color:var(--muted)}
+.push-info{color:var(--blue);font-weight:700}
+.bot-status a{color:var(--blue);text-decoration:none}
 .sub-op{margin-bottom:16px}
 .sub-op-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .sub-op-name{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700}
@@ -257,6 +275,10 @@ body.dark .notice{background:#422006;border-color:#78350f;color:#fcd34d}
 .pub-list li b{color:var(--blue);font-weight:700}
 .pub-group-title{font-size:12px;font-weight:700;color:var(--text);padding:14px 2px 7px;display:flex;align-items:center;gap:7px}
 .pub-group-title::before{content:"";width:3px;height:13px;background:var(--blue);border-radius:2px}
+.diff-table th{text-align:left;color:var(--muted);font-size:11.5px;font-weight:600;padding:8px 13px;border:1px solid var(--border);background:var(--card2)}
+.diff-before{color:#b91c1c;background:rgba(239,68,68,.06);word-break:break-word}
+.diff-after{color:#15803d;background:rgba(34,197,94,.06);word-break:break-word}
+.hdetail{margin-left:8px;padding:2px 7px;font-size:11px;vertical-align:middle}
 /* 高级检索 */
 .adv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:16px 18px}
 .adv-field{display:flex;flex-direction:column;gap:5px}
@@ -351,6 +373,16 @@ footer{text-align:center;color:var(--muted);font-size:11.5px;margin-top:24px;lin
     </div>
   </div>
 </div>
+<div class="modal hidden" id="historyModal">
+  <div class="modal-box wide">
+    <div class="modal-head"><h3 id="hcTitle">变更详情</h3><button class="close" data-close>×</button></div>
+    <div class="modal-body">
+      <div class="detail-meta" id="hcMeta"></div>
+      <div id="hcBody"></div>
+      <div class="detail-actions"><button class="btn" id="hcCopy">复制变更详情</button></div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -369,12 +401,14 @@ function loadSubRules(){
     const r=JSON.parse(localStorage.getItem('tariff_sub_rules')||'null');
     if(r&&typeof r==='object') return r;
   }catch(e){}
-  return {mobile:['江西'],telecom:['新疆'],unicom:[],gb:[]};
+  // 默认展示当前两路推送的重点范围（与专项源 WATCH_RULES 对齐），不再是旧版的移动江西/电信新疆
+  return {mobile:['江西','山西','贵州','吉林','四川'],telecom:['新疆','吉林','江西','贵州','四川','山西'],unicom:['四川','江西','吉林','贵州','山西'],gb:['江西','吉林','贵州','四川','山西']};
 }
 const OWNERS=['个人','政企'];
 // 不内置任何示例数据：页面只展示 GitHub Actions 抓取的真实公示数据。
 // 数据未就绪时由加载态占位，加载失败显示错误提示，绝不用虚构资费冒充。
 let DATA=[], HISTORY=[];
+let histRows=[];   // 变化历史当前筛选结果，供"查看"详情窗口按索引定位
 let loadState='loading'; // loading | ready | error | empty
 
 /* ---------- 状态 ---------- */
@@ -407,10 +441,13 @@ function saveSel(){
   try{localStorage.setItem(SEL_KEY,JSON.stringify(sel));}catch(e){}
   try{history.replaceState(null,'',location.pathname+'#'+new URLSearchParams(sel).toString());}catch(e){}
 }
-const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
+const state={tab:_sel.tab,op:_sel.op,prov:_sel.prov,showCollect:_sel.showCollect,showOffline:_sel.showOffline,type:'all',owner:'all',sort:'price',asc:true,q:'',priceMin:'',priceMax:'',favOnly:false,zeroOnly:false,histMode:'item',histPage:1,histExpand:false,page:1,size:12,
   // scopes: [{op,prov},...] 自定义检索范围（满足任一即命中，AND 语义由「同一条内 op+prov」体现）
   search:{scopes:[{op:'all',prov:'all'}],field:'any',kw:'',mode:'contains'},
-  sub:{rules:loadSubRules(),atMobiles:localStorage.getItem('tariff_at_mobiles')||'',maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:''},
+  sub:{rules:loadSubRules(),maxItems:Number(localStorage.getItem('tariff_max_items')||30),token:'',
+    // Webhook/密钥只留内存，绝不写 localStorage；配置密码只存散列值
+    webhook:'',secret:'',channels:'',siteUrl:'',
+    pwdHash:localStorage.getItem('tariff_sub_pwd')||'',unlocked:false},
   favs:new Set(JSON.parse(localStorage.getItem('tariff_favs')||'[]')),dark:localStorage.getItem('tariff_dark')==='1'};
 const $=id=>document.getElementById(id);
 // 电信/移动：不展示"已下线"开关，且已下线条目一律不显示、不统计；联通/广电保留原开关行为。
@@ -423,17 +460,20 @@ function TODAY(){
   const d=new Date(Date.now()+8*3600*1000);
   return d.toISOString().slice(0,10);
 }
+// 变更字段中文名：changeText 摘要与历史详情窗口共用
+const CHANGE_LABELS={price:'月费',data:'通用流量',voice:'语音',broadband:'宽带',note:'资费说明',note_full:'完整说明',
+  scope:'适用范围',region:'适用地区',channel:'销售渠道',onDate:'上架日期',offDate:'下架日期',
+  validPeriod:'有效期',inNetReq:'在网要求',unsubscribe:'退订方式',responsibility:'违约责任',
+  sms:'短信',orient:'定向流量',regionData:'省内流量',iptv:'IPTV',rights:'权益',
+  service:'其他服务内容',extraFees:'额外费用',otherNotes:'其他说明'};
+function changeFieldVal(obj,k){return k.indexOf('details.')===0?(obj.details||{})[k.slice(8)]:obj[k];}
 function changeText(h){
   if(h.kind==='新增') return '新上架 · '+money(h.price)+'/月';
   if(h.kind==='下架') return '已下架 · 原 '+money(h.price)+'/月';
   const o=h.old||{},keys=Object.keys(o);
   if(!keys.length) return '资费详情有调整，详见运营商官网。';
-  const L={price:'月费',data:'通用流量',voice:'语音',broadband:'宽带',note:'资费说明',note_full:'完整说明',
-    scope:'适用范围',region:'适用地区',channel:'销售渠道',onDate:'上架日期',offDate:'下架日期',
-    validPeriod:'有效期',inNetReq:'在网要求',unsubscribe:'退订方式',responsibility:'违约责任',
-    sms:'短信',orient:'定向流量',regionData:'省内流量',iptv:'IPTV',rights:'权益',
-    service:'其他服务内容',extraFees:'额外费用',otherNotes:'其他说明'};
-  const val=(obj,k)=>k.indexOf('details.')===0?(obj.details||{})[k.slice(8)]:obj[k];
+  const L=CHANGE_LABELS;
+  const val=changeFieldVal;
   const short=v=>{const s=String(v==null?'':v).replace(/\s+/g,' ');return s.length<=44?s:s.slice(0,44)+'…';};
   // note/note_full 是其他详情字段的汇总文本，已有具体字段变化时不重复展示
   const specific=keys.some(k=>k.indexOf('details.')===0||['price','data','voice','broadband'].indexOf(k)>=0);
@@ -468,6 +508,10 @@ function currentRows(){
   if(state.type!=='all') rows=rows.filter(d=>d.type===state.type);
   if(state.owner!=='all') rows=rows.filter(d=>d.owner===state.owner);
   if(state.zeroOnly) rows=rows.filter(d=>d.price===0);
+  // 月费区间：只填一端就做单向过滤；非数字输入忽略（不误伤数据）
+  const pmin=Number(state.priceMin), pmax=Number(state.priceMax);
+  if(state.priceMin!==''&&Number.isFinite(pmin)) rows=rows.filter(d=>Number(d.price)>=pmin);
+  if(state.priceMax!==''&&Number.isFinite(pmax)) rows=rows.filter(d=>Number(d.price)<=pmax);
   if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
   const q=state.q.trim().toLowerCase();
   // 覆盖全部字段：adaptRemote 已预计算 _hay；缺索引时按需补一次
@@ -559,6 +603,7 @@ function filtersHTML(withProv){
     '<select id="fSort"><option value="price"'+(state.sort==='price'?' selected':'')+'>按价格</option><option value="onDate"'+(state.sort==='onDate'?' selected':'')+'>上架时间</option><option value="offDate"'+(state.sort==='offDate'?' selected':'')+'>下架时间</option><option value="collected"'+(state.sort==='collected'?' selected':'')+'>收录时间</option></select>'+
     '<button class="btn" id="fAsc">'+(state.asc?'升序 ↑':'降序 ↓')+'</button>'+
     '<div class="search"><input type="text" id="fQ" value="'+state.q.replace(/"/g,'&quot;')+'" placeholder="搜索名称/编号/说明" style="width:230px"></div>'+
+    '<div class="price-range" title="按月费区间筛选（元/月，可只填一端）"><input type="number" id="fPmin" min="0" step="any" placeholder="最低月费" value="'+escHtml(state.priceMin)+'"><span>—</span><input type="number" id="fPmax" min="0" step="any" placeholder="最高月费" value="'+escHtml(state.priceMax)+'"><span class="price-unit">元</span></div>'+
     '<button class="btn'+(state.zeroOnly?' on':'')+'" id="fZero" title="只看 0 元业务">零元业务</button>'+
     '<button class="btn'+(state.favOnly?' on':'')+'" id="fFav">★ 收藏</button>'+
     '<button class="btn'+(state.showCollect?' on':'')+'" id="fCollect" title="显示/隐藏采集日期列">采集日期'+(state.showCollect?' ✓':'')+'</button>'+
@@ -572,10 +617,12 @@ function bindFilters(withProv){
   $('fSort').addEventListener('change',e=>{state.sort=e.target.value;state.page=1;render();});
   $('fAsc').addEventListener('click',()=>{state.asc=!state.asc;state.page=1;render();});
   $('fQ').addEventListener('input',e=>{state.q=e.target.value;state.page=1;refreshResults();});
+  $('fPmin').addEventListener('input',e=>{state.priceMin=e.target.value;state.page=1;refreshResults();});
+  $('fPmax').addEventListener('input',e=>{state.priceMax=e.target.value;state.page=1;refreshResults();});
   $('fZero').addEventListener('click',()=>{state.zeroOnly=!state.zeroOnly;state.page=1;render();});
   $('fFav').addEventListener('click',()=>{state.favOnly=!state.favOnly;state.page=1;render();});
   $('fCollect').addEventListener('click',()=>{state.showCollect=!state.showCollect;saveSel();render();toast(state.showCollect?'已显示采集日期':'已隐藏采集日期');});
-  $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.zeroOnly=false;state.favOnly=false;state.page=1;render();});
+  $('fReset').addEventListener('click',()=>{state.type='all';state.owner='all';state.sort='price';state.asc=true;state.q='';state.priceMin='';state.priceMax='';state.zeroOnly=false;state.favOnly=false;state.page=1;render();});
   $('fCsv').addEventListener('click',exportCSV);
   $('fCount').textContent='共 '+currentRows().length+' 条';
 }
@@ -603,7 +650,7 @@ function renderOverview(){
   const provChanges=HISTORY.filter(h=>h.op===state.op&&h.province===state.prov&&h.date>=since).length;
   const max=Math.max(1,...cats.map(c=>c[1]));
   $('view').innerHTML=
-    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(!offlineSuppressed()&&!state.showOffline&&offlineCount?' · <span style="color:var(--warn)">已隐藏 '+offlineCount+' 条已下线资费（点顶部「已下线」开关可查看）</span>':'')+'</p>'+
+    '<div class="hero"><h2>'+CARRIERS[state.op].name+' · 资费总览</h2><p>全网通用资费 + 31 省公开资费数据一览'+(!offlineSuppressed()&&!state.showOffline&&offlineCount?' · <span class="hero-offline-tip">已隐藏 '+offlineCount+' 条已下线资费（点顶部「已下线」开关可查看）</span>':'')+'</p>'+
     '<div class="hero-stats"><div><b>'+nat.length+'</b><span>全网通用资费</span></div><div><b>'+pv.length+'</b><span>31省资费合计(去重)</span></div>'+
     '<div><b>'+prov.filter(d=>d.owner==='个人').length+'</b><span>本省个人资费</span></div><div><b>'+prov.filter(d=>d.owner==='政企').length+'</b><span>本省政企资费</span></div></div></div>'+
     '<div class="kpi-grid">'+
@@ -778,6 +825,10 @@ function renderHistory(){
     Array.prototype.forEach.call($('timeline').querySelectorAll('.hist-head'),el=>{
       el.addEventListener('click',()=>el.parentNode.classList.toggle('open'));
     });
+    // 每条改动独立"查看"：弹出完整前后字段对比，不展开整个分组也能看详情
+    $('timeline').querySelectorAll('[data-hdetail]').forEach(el=>el.addEventListener('click',e=>{
+      e.stopPropagation();openHistoryDetail(Number(el.dataset.hdetail));
+    }));
     $('hExpand').textContent=state.histExpand?'全部收起':'全部展开';
   };
   const tlItem=(h,color,showProv)=>{
@@ -785,7 +836,8 @@ function renderHistory(){
     return '<div class="tl-item"><span class="tl-dot" style="--oc:'+color+'"></span><div class="tl-body">'+
       '<div class="tl-title"><span class="chg '+c+'">'+h.kind+'</span> '+
       (showProv?'<span class="muted" style="font-weight:400;font-size:11.5px">'+h.province+' · </span>':'')+
-      '<span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span></div>'+
+      '<span class="muted" style="font-weight:400;font-size:11.5px">'+h.date+'</span>'+
+      '<button class="detail hdetail" data-hdetail="'+(h._hi||0)+'">查看</button></div>'+
       '<div class="tl-change">'+h.name+'</div><div class="tl-change muted">'+changeText(h)+'</div></div></div>';
   };
   const drawItem=(list)=>{
@@ -842,6 +894,8 @@ function renderHistory(){
   const draw=()=>{
     const pv=$('hProv').value;
     const list=pv==='all'?rows:rows.filter(h=>h.province===pv);
+    histRows=list;                              // 详情窗口按索引取记录
+    list.forEach((h,i)=>{h._hi=i;});            // 列表重建后索引始终对应当前筛选结果
     if(state.histMode==='batch') drawBatch(list); else drawItem(list);
   };
   $('hProv').addEventListener('change',()=>{state.histPage=1;draw();});
@@ -872,6 +926,129 @@ function subSummaryText(){
   }).filter(Boolean);
   return parts.length?parts.join('　'):'未选择任何关注项';
 }
+/* 配置密码：前端交互锁（非安全边界）。存双 32 位散列，不存明文。 */
+function subPwdHash(p){
+  let a=0x811c9dc5,b=0x01000193;
+  for(let i=0;i<p.length;i++){const c=p.charCodeAt(i);a=Math.imul(a^c,0x01000193)>>>0;b=Math.imul(b+c+i*31,0x85ebca6b)>>>0;}
+  return ('00000000'+a.toString(16)).slice(-8)+('00000000'+b.toString(16)).slice(-8);
+}
+/* GitHub API 小工具：统一带上 Token 与版本头 */
+function ghHeaders(token){return {'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};}
+async function ghRaw(path,token,method='GET',body){
+  const res=await fetch('https://api.github.com/'+path,{method,headers:{...ghHeaders(token),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
+  let j=null;try{j=await res.json();}catch(e){}
+  return {res,j};
+}
+async function gh(path,token,method='GET',body){
+  const {res,j}=await ghRaw(path,token,method,body);
+  if(!res.ok) throw new Error((j&&j.message)||('HTTP '+res.status));
+  return j;
+}
+/* 加签 Secret 必须用仓库公钥做/libsodium sealed box 加密后再上传 */
+function loadScript(src){return new Promise((resolve,reject)=>{
+  const el=document.createElement('script');el.src=src;el.onload=()=>resolve();el.onerror=()=>reject(new Error('加载失败：'+src));document.head.appendChild(el);
+});}
+let _sealPromise=null;
+function ensureSealLib(){
+  if(window.nacl&&window.sealedBox&&typeof window.sealedBox.seal==='function') return Promise.resolve();
+  if(_sealPromise) return _sealPromise;
+  _sealPromise=(async()=>{
+    const tries=[
+      ['assets/nacl.min.js','assets/sealedbox.web.js'],
+      ['https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl.min.js','https://cdn.jsdelivr.net/npm/tweetnacl-sealedbox-js@1.2.0/sealedbox.web.js'],
+      ['https://unpkg.com/tweetnacl@1.0.3/nacl.min.js','https://unpkg.com/tweetnacl-sealedbox-js@1.2.0/sealedbox.web.js']
+    ];
+    let last=null;
+    for(const [a,b] of tries){
+      try{await loadScript(a);await loadScript(b);
+        if(window.nacl&&window.sealedBox&&typeof window.sealedBox.seal==='function') return;
+      }catch(e){last=e;}
+    }
+    throw new Error('加密库加载失败'+(last?'：'+last.message:''));
+  })().catch(e=>{_sealPromise=null;throw e;});
+  return _sealPromise;
+}
+async function ghSetSecret(token,name,value){
+  const pk=await gh('repos/'+SUB_REPO+'/actions/secrets/public-key',token);
+  if(!pk||!pk.key||!pk.key_id) throw new Error('无法获取仓库公钥');
+  await ensureSealLib();
+  const pub=Uint8Array.from(atob(pk.key),c=>c.charCodeAt(0));
+  const box=window.sealedBox.seal(new TextEncoder().encode(value),pub);
+  let bin='';for(let i=0;i<box.length;i++) bin+=String.fromCharCode(box[i]);
+  await gh('repos/'+SUB_REPO+'/actions/secrets/'+encodeURIComponent(name),token,'PUT',{encrypted_value:btoa(bin),key_id:pk.key_id});
+}
+async function ghSetVariable(token,name,value){
+  const base='repos/'+SUB_REPO+'/actions/variables/'+encodeURIComponent(name);
+  const {res}=await ghRaw(base,token);           // 先探测存在性：404 则 POST 新建，否则 PATCH 更新
+  if(res.status===404) await gh('repos/'+SUB_REPO+'/actions/variables',token,'POST',{name,value});
+  else if(res.ok) await gh(base,token,'PATCH',{name,value});
+  else throw new Error('读取变量 '+name+' 失败 HTTP '+res.status);
+}
+async function saveBotConfig(){
+  const s=state.sub,token=(s.token||'').trim();
+  if(!token){subStatus('请先填写 GitHub PAT（需 Actions: write 权限）。','err');return;}
+  const jobs=[];
+  if((s.webhook||'').trim()) jobs.push(['DINGTALK_WEBHOOK',()=>ghSetSecret(token,'DINGTALK_WEBHOOK',s.webhook.trim())]);
+  if((s.secret||'').trim()) jobs.push(['DINGTALK_SECRET',()=>ghSetSecret(token,'DINGTALK_SECRET',s.secret.trim())]);
+  if((s.channels||'').trim()) jobs.push(['NOTIFY_CHANNELS',()=>ghSetVariable(token,'NOTIFY_CHANNELS',s.channels.trim())]);
+  if((s.siteUrl||'').trim()) jobs.push(['SITE_URL',()=>ghSetVariable(token,'SITE_URL',s.siteUrl.trim())]);
+  if(!jobs.length){subStatus('没有填写任何要保存的值。留空表示不修改现有配置。','err');return;}
+  const btn=$('subSaveBot');btn.disabled=true;btn.textContent='保存中…';
+  subStatus('正在写入 GitHub（Secret 需加密，可能需要几秒）…','info');
+  const done=[],errors=[];
+  for(const [name,fn] of jobs){
+    try{await fn();done.push(name);}
+    catch(e){let m=e.message;if(/Resource not accessible|403|404/i.test(m)) m+='（Token 需本仓库 Actions: write 权限）';errors.push(name+'：'+m);}
+  }
+  if(errors.length){
+    subStatus('部分保存失败：\n'+errors.join('\n')+(done.length?'\n\n已成功：'+done.join('、'):''),'err');
+  }else{
+    s.webhook='';s.secret='';s.token='';
+    ['subWebhook','subSecret','subToken'].forEach(id=>{if($(id)) $(id).value='';});
+    subStatus('✓ 已保存到 GitHub：'+done.join('、')+'。\nSecret 无法回读，可到仓库 Settings 确认。\n关注规则与消息上限请点「同步关注规则」。','ok');
+  }
+  btn.disabled=false;btn.textContent='保存机器人配置到 GitHub';
+}
+/* 机器人状态：汇总 9 个源上报的 push_status.json + GitHub Actions 最近运行 */
+let _botStatusAt=0,_botStatusHtml='';
+async function loadPushStatus(force){
+  const box=$('botStatus');if(!box)return;
+  // 订阅页每次勾选省份都会重渲染，状态没必要每次都拉 10 个文件；缓存 60 秒
+  if(!force&&_botStatusHtml&&Date.now()-_botStatusAt<60000){box.innerHTML=_botStatusHtml;bindStatusRefresh();return;}
+  box.innerHTML='<div class="muted">正在读取机器人状态…</div>';
+  const recs=[];
+  const sources=OPS.map(op=>[opName(op),'data/ops/'+op+'/push_status.json']);
+  sources.push(['通道测试','data/push_status.json']);
+  await Promise.all(sources.map(async ([label,url])=>{
+    try{const arr=await fetchJSON(url+'?t='+Date.now(),6000);
+      if(Array.isArray(arr)) arr.forEach(r=>recs.push({...r,src:label}));
+    }catch(e){}
+  }));
+  recs.sort((a,b)=>String(b.time).localeCompare(String(a.time)));
+  const latest=recs[0];
+  const cfg=latest?(latest.dingtalk?'最近上报：Webhook 已配置':'最近上报：未检测到 Webhook'):'暂无上报数据';
+  const map={ok:['成功','ok'],fail:['失败','err'],skip:['无需推送','muted'],noconfig:['未配置通道','warn'],test:['测试','info']};
+  let html='<div class="bot-state"><span class="pill">'+escHtml(cfg)+'</span><span class="muted">共 '+recs.length+' 条上报</span></div>';
+  if(!recs.length) html+='<div class="muted">还没有推送记录。工作流跑过一次后，这里会自动显示最近结果。</div>';
+  else html+='<div class="table-wrap"><table class="pub-table"><thead><tr><th>时间</th><th>来源</th><th>状态</th><th>条数</th><th>说明</th></tr></thead><tbody>'+
+    recs.slice(0,12).map(r=>{const m=map[r.status]||[r.status||'未知','muted'];
+      return '<tr><td>'+escHtml(r.time)+'</td><td>'+escHtml(r.src||'')+(r.tag?' · '+escHtml(r.tag):'')+'</td>'+
+        '<td><span class="push-'+m[1]+'">'+m[0]+'</span></td><td>'+(Number(r.count)||0)+'</td><td class="muted">'+escHtml(r.detail||'')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  try{
+    const runs=await fetchJSON('https://api.github.com/repos/'+SUB_REPO+'/actions/runs?per_page=8',8000);
+    const list=(runs&&runs.workflow_runs)||[];
+    html+='<div class="pub-group-title">最近任务运行（GitHub Actions）</div>';
+    if(!list.length) html+='<div class="muted">暂无运行记录。</div>';
+    else html+='<ul class="pub-list">'+list.map(r=>'<li><a href="'+escHtml(r.html_url)+'" target="_blank" rel="noopener">'+escHtml(r.name)+'</a> · '+escHtml(r.conclusion||r.status||'运行中')+' · '+escHtml(String(r.created_at||'').replace('T',' ').slice(0,16))+'</li>').join('')+'</ul>';
+  }catch(e){html+='<div class="muted" style="font-size:11px">任务运行状态读取失败（可能触发 GitHub API 限流），不影响上面的推送记录。</div>';}
+  html+='<div style="margin-top:10px"><button type="button" class="btn" data-bot-refresh>刷新状态</button></div>';
+  box.innerHTML=html;_botStatusHtml=html;_botStatusAt=Date.now();bindStatusRefresh();
+}
+function bindStatusRefresh(){
+  const b=document.querySelector('#botStatus [data-bot-refresh]');
+  if(b) b.addEventListener('click',()=>loadPushStatus(true));
+}
 function renderSubscribe(){
   const s=state.sub;
   // 运营商 × 省份勾选矩阵
@@ -892,23 +1069,41 @@ function renderSubscribe(){
     '<div class="sub-wrap">'+
     '<div class="card sub-sec">'+
       '<h4>① 关注的运营商与省份</h4>'+
-      '<p class="sub-hint" style="color:var(--warn)">推送已分两路：<b>重点组合</b>（江西/吉林/贵州/四川/山西全省、新疆电信）由专项自动推送（标签「★重点」）；<b>其他省份</b>由全量自动推送（标签「其他·X」）。两路均固定，下面的省份勾选仅作范围记录，不再改变实际推送对象；@手机号 / 消息上限 / 站点地址仍生效。</p>'+
+      '<p class="sub-hint" style="color:var(--warn)">推送已分两路：<b>重点组合</b>（江西/吉林/贵州/四川/山西全省、新疆电信）由专项自动推送（标签「★重点」）；<b>其他省份</b>由全量自动推送（标签「其他·X」）。两路均固定，下面的省份勾选仅作范围记录，不再改变实际推送对象；<b>消息上限 / 站点地址在下方机器人参数中配置</b>。</p>'+
       '<p class="sub-hint">勾选记录你关心的地区（新增 / 修改 / 下架）。可跨运营商、多选省份。</p>'+
       '<div class="sub-summary">当前关注：<b>'+subSummaryText()+'</b><br>共 '+subCount()+' 个关注项</div>'+
       opBlocks+
       '<div class="sub-actions"><button type="button" class="btn" id="subSelAll">全选全部省份</button><button type="button" class="btn" id="subClearAll">清空所有</button></div>'+
     '</div>'+
     '<div class="card sub-sec">'+
-      '<h4>② 钉钉机器人设置</h4>'+
-      '<p class="sub-hint">Webhook 与加签密钥属于敏感信息，请在仓库 <code>Settings → Secrets and variables → Actions</code> 中配置 <code>DINGTALK_WEBHOOK</code>（必填）与 <code>DINGTALK_SECRET</code>（加签时填）。下方仅需填写可选的通知补充项。</p>'+
-      '<div class="sub-field"><label>@ 手机号（可选，多个用逗号分隔）</label><input type="text" id="subAt" placeholder="13800000000,13900000000" value="'+escHtml(s.atMobiles)+'"></div>'+
-      '<div class="sub-field"><label>单条消息最多展示变更数</label><input type="text" id="subMax" value="'+s.maxItems+'" inputmode="numeric"></div>'+
-      '<p class="sub-note">超过上限的变更会合并为「另有 N 条未展示」，避免消息过长触发钉钉限流。</p>'+
-      '<h4 style="margin-top:20px">③ 同步到仓库</h4>'+
-      '<p class="sub-hint">填入 GitHub 个人访问令牌（PAT），点击同步即可把上面的关注规则写入仓库 <code>'+SUB_CONFIG_PATH+'</code>，Actions 下次抓取时自动读取。Token 只在本次操作中使用，不会保存。</p>'+
-      '<div class="sub-field"><label>GitHub Personal Access Token</label><input type="password" id="subToken" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" value="'+escHtml(s.token)+'"></div>'+
-      '<p class="sub-warn">⚠ 需用细粒度 Token，仅授予本仓库 Contents 读写权限。请勿使用高权限 Token；Token 不会写入仓库或本地存储。</p>'+
-      '<div class="sub-actions"><button type="button" class="btn on" id="subSync">同步到 GitHub</button><button type="button" class="btn" id="subPreview">预览配置</button></div>'+
+      '<h4>② 钉钉机器人状态</h4>'+
+      '<p class="sub-hint">展示最近各路推送结果与 GitHub 任务运行情况。<b>Secret 无法被网页读取</b>，这里只显示各工作流上报的「是否已配置」标记，不含 Webhook / 密钥明文。</p>'+
+      '<div class="bot-status" id="botStatus"><div class="muted">正在读取机器人状态…</div></div>'+
+    '</div>'+
+    '<div class="card sub-sec">'+
+      '<h4>③ 钉钉机器人参数 <span class="pill">'+(s.unlocked?'🔓 已解锁':'🔒 已锁定')+'</span></h4>'+
+      '<p class="sub-note">修改 Webhook / 密钥 / 变量需先输入配置密码。密码只存在本机浏览器，用于防止他人误改参数；这是<b>前端交互锁，不是安全边界</b>。</p>'+
+      (s.unlocked
+        ? '<div class="pwd-bar"><input type="password" id="subPwd1" placeholder="新密码（至少 4 位）" autocomplete="new-password"><input type="password" id="subPwd2" placeholder="再输一次" autocomplete="new-password"><button type="button" class="btn" id="subPwdChange">修改密码</button><button type="button" class="btn" id="subLock">锁定</button></div>'
+        : s.pwdHash
+          ? '<div class="pwd-bar"><input type="password" id="subPwd1" placeholder="请输入配置密码" autocomplete="current-password"><button type="button" class="btn on" id="subPwdUnlock">解锁配置</button></div>'
+          : '<div class="pwd-bar"><input type="password" id="subPwd1" placeholder="设置配置密码（至少 4 位）" autocomplete="new-password"><input type="password" id="subPwd2" placeholder="再输一次" autocomplete="new-password"><button type="button" class="btn on" id="subPwdSet">设置并解锁</button></div>')+
+      (s.unlocked
+        ? '<div class="bot-config">'+
+          '<p class="sub-hint">可直接在此修改 GitHub Actions 的 Secrets 与 Variables。<b>留空表示不修改该项</b>——Secret 无法回读，不能在这里看到原值。</p>'+
+          '<div class="sub-field"><label>Secret · DINGTALK_WEBHOOK（钉钉机器人地址）</label><input type="password" id="subWebhook" placeholder="留空不修改；粘贴 https://oapi.dingtalk.com/robot/send?access_token=..." autocomplete="off" value="'+escHtml(s.webhook||'')+'"></div>'+
+          '<div class="sub-field"><label>Secret · DINGTALK_SECRET（加签密钥，留空不改）</label><input type="password" id="subSecret" placeholder="SEC 开头；关键词安全设置则留空" autocomplete="off" value="'+escHtml(s.secret||'')+'"></div>'+
+          '<div class="sub-field"><label>Variable · NOTIFY_CHANNELS（推送通道）</label><input type="text" id="subChannels" placeholder="dingtalk / all，留空不修改" value="'+escHtml(s.channels||'')+'"></div>'+
+          '<div class="sub-field"><label>Variable · SITE_URL（消息里的站点地址）</label><input type="text" id="subSiteUrl" placeholder="留空不修改" value="'+escHtml(s.siteUrl||'')+'"></div>'+
+          '<div class="sub-field"><label>单条消息最多展示变更数（写入规则文件）</label><input type="text" id="subMax" value="'+s.maxItems+'" inputmode="numeric"></div>'+
+          '<p class="sub-warn">⚠ 保存 Secrets / Variables 需细粒度 Token 授予本仓库 <b>Actions: write</b>；同步规则文件还需 <b>Contents: write</b>。Token 在下方填写，不落盘、用完即弃。</p>'+
+          '<div class="sub-actions"><button type="button" class="btn on" id="subSaveBot">保存机器人配置到 GitHub</button></div>'+
+          '</div>'
+        : '')+
+      '<div class="sub-field" style="margin-top:14px"><label>④ 同步关注规则到仓库 <code>'+SUB_CONFIG_PATH+'</code></label></div>'+
+      '<p class="sub-hint">把关注范围与消息上限写入仓库规则文件，Actions 下次抓取时生效。此 Token 同时供上方「保存机器人配置」使用。</p>'+
+      '<div class="sub-field"><label>GitHub Personal Access Token</label><input type="password" id="subToken" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" value="'+escHtml(s.token||'')+'"></div>'+
+      '<div class="sub-actions"><button type="button" class="btn" id="subSync">同步关注规则</button><button type="button" class="btn" id="subPreview">预览配置</button></div>'+
       '<div class="sub-status" id="subStatus"></div>'+
     '</div>'+
     '</div>';
@@ -931,11 +1126,39 @@ function renderSubscribe(){
   $('subClearAll').addEventListener('click',()=>{
     Object.keys(CARRIERS).forEach(op=>state.sub.rules[op]=[]);renderSubscribe();
   });
-  $('subAt').addEventListener('input',e=>{s.atMobiles=e.target.value;localStorage.setItem('tariff_at_mobiles',e.target.value);});
-  $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
-  $('subToken').addEventListener('input',e=>{s.token=e.target.value;});
+  // 配置密码：首次设置 / 解锁 / 修改 / 锁定
+  if($('subPwdSet')) $('subPwdSet').addEventListener('click',()=>{
+    const p=($('subPwd1').value||'').trim(), q=($('subPwd2').value||'').trim();
+    if(p.length<4){subStatus('密码至少 4 位。','err');return;}
+    if(p!==q){subStatus('两次输入的密码不一致。','err');return;}
+    s.pwdHash=subPwdHash(p);localStorage.setItem('tariff_sub_pwd',s.pwdHash);s.unlocked=true;
+    renderSubscribe();subStatus('✓ 配置密码已设置并解锁。','ok');
+  });
+  if($('subPwdUnlock')) $('subPwdUnlock').addEventListener('click',()=>{
+    const p=($('subPwd1').value||'').trim();
+    if(subPwdHash(p)!==s.pwdHash){subStatus('密码不正确。','err');return;}
+    s.unlocked=true;renderSubscribe();subStatus('✓ 已解锁，可修改机器人参数。','ok');
+  });
+  if($('subPwdChange')) $('subPwdChange').addEventListener('click',()=>{
+    const p=($('subPwd1').value||'').trim(), q=($('subPwd2').value||'').trim();
+    if(p.length<4){subStatus('新密码至少 4 位。','err');return;}
+    if(p!==q){subStatus('两次输入的密码不一致。','err');return;}
+    s.pwdHash=subPwdHash(p);localStorage.setItem('tariff_sub_pwd',s.pwdHash);
+    $('subPwd1').value='';$('subPwd2').value='';subStatus('✓ 配置密码已修改。','ok');
+  });
+  if($('subLock')) $('subLock').addEventListener('click',()=>{
+    s.unlocked=false;renderSubscribe();subStatus('已锁定。','info');
+  });
+  // 机器人参数输入（仅解锁后存在）
+  [['subWebhook','webhook'],['subSecret','secret'],['subChannels','channels'],['subSiteUrl','siteUrl']].forEach(([id,key])=>{
+    if($(id)) $(id).addEventListener('input',e=>{s[key]=e.target.value;});
+  });
+  if($('subMax')) $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
+  if($('subToken')) $('subToken').addEventListener('input',e=>{s.token=e.target.value;});
+  if($('subSaveBot')) $('subSaveBot').addEventListener('click',saveBotConfig);
   $('subPreview').addEventListener('click',previewSubConfig);
   $('subSync').addEventListener('click',syncSubConfig);
+  loadPushStatus();
 }
 function toggleSub(op,pv){
   const arr=state.sub.rules[op]||(state.sub.rules[op]=[]);
@@ -952,10 +1175,9 @@ function toggleSub(op,pv){
 function buildSubConfig(existing){
   const s=state.sub;
   const rules=Object.keys(CARRIERS).map(op=>({op,provinces:(s.rules[op]||[]).slice()})).filter(r=>r.provinces.length);
-  const at=s.atMobiles.split(',').map(x=>x.trim()).filter(Boolean);
   // 保留仓库现有配置里的站点地址/note 等非本页管理的字段，避免同步时被清空。
   const siteUrl=existing&&existing.site_url!==undefined?existing.site_url:(state.sub.siteUrl||'');
-  return {version:1,updated_at:new Date().toISOString().slice(0,19).replace('T',' '),rules,at_mobiles:at,max_items:s.maxItems,site_url:siteUrl};
+  return {version:1,updated_at:new Date().toISOString().slice(0,19).replace('T',' '),rules,max_items:s.maxItems,site_url:siteUrl};
 }
 function subStatus(msg,type){
   const el=$('subStatus');el.className='sub-status show '+(type||'info');el.textContent=msg;
@@ -963,7 +1185,7 @@ function subStatus(msg,type){
 function previewSubConfig(){
   const cfg=buildSubConfig();
   const ruleText=cfg.rules.map(r=>r.op+' → '+r.provinces.map(p=>p==='*'?'全部':p).join('、')).join('\n')||'（无关注项）';
-  subStatus('预览配置：\n'+ruleText+'\n@：'+(cfg.at_mobiles.join('、')||'无')+'\n每消息上限：'+cfg.max_items+' 条\n\n注意：预览不会写入仓库。','info');
+  subStatus('预览配置：\n'+ruleText+'\n每消息上限：'+cfg.max_items+' 条\n\n注意：预览不会写入仓库。','info');
 }
 async function syncSubConfig(){
   const s=state.sub, token=(s.token||'').trim();
@@ -998,7 +1220,7 @@ async function syncSubConfig(){
     }
     s.token=''; // 同步成功后清空内存中的 Token
     if($('subToken')) $('subToken').value='';
-    subStatus('✓ 已同步到仓库！配置已保存（@手机号 / 上限 / 站点）。重点组合由专项每 4 小时推送，其他省份由全量每日三次推送。\n当前记录 '+subCount()+' 项。','ok');
+    subStatus('✓ 已同步到仓库！配置已保存（上限 / 站点）。重点组合由专项每 4 小时推送，其他省份由全量每日三次推送。\n当前记录 '+subCount()+' 项。','ok');
   }catch(e){
     subStatus('同步失败：'+e.message+'\n\n提示：请使用细粒度 Token 并授予本仓库 Contents 读写权限。','err');
   }finally{
@@ -1162,6 +1384,60 @@ function openDetail(id){
   $('dFav').classList.toggle('on',state.favs.has(id));
   openModal('detailModal');
 }
+/* 变化历史详情：展示这一条改动前后的完整字段，便于判断"到底变了什么" */
+let historyDetailId=null;
+function diffVal(v,k){
+  if(v==null||v==='') return '—';
+  const s=String(v).replace(/\s+/g,' ').trim();
+  return k==='price'?money(Number(v)||0):(s.length>200?s.slice(0,200)+'…':s);
+}
+function openHistoryDetail(idx){
+  const h=histRows[idx];if(!h)return;
+  historyDetailId=idx;
+  const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+  $('hcTitle').textContent=h.name+' · 变更详情';
+  $('hcMeta').innerHTML=opBadge(h.op)+'<span class="pill">'+escHtml(h.province||'全国')+'</span>'+
+    '<span class="pill">'+escHtml(h.date)+'</span><span class="chg '+c+'">'+h.kind+'</span>'+
+    (h.code?'<span class="pill">编号 '+escHtml(h.code)+'</span>':'');
+  const basic=[['方案编号',h.code],['资费类型',h.type],['归属',h.owner],['月费',money(h.price)],
+    ['通用流量',h.data],['语音',h.voice],['宽带',h.broadband]];
+  const basicTable='<table class="pub-table">'+basic.map(([k,v])=>'<tr><td class="k">'+k+'</td><td>'+escHtml(v||'—')+'</td></tr>').join('')+'</table>';
+  const old=h.old||{},keys=Object.keys(old);
+  let changeTable='';
+  if(keys.length){
+    changeTable='<table class="pub-table diff-table"><thead><tr><th>变更字段</th><th>变更前</th><th>变更后</th></tr></thead><tbody>'+
+      keys.map(k=>{
+        const label=CHANGE_LABELS[k]||CHANGE_LABELS[k.split('.').pop()]||k;
+        const before=diffVal(old[k],k), after=diffVal(changeFieldVal(h,k),k);
+        return '<tr><td class="k">'+escHtml(label)+'</td><td class="diff-before">'+escHtml(before)+'</td><td class="diff-after">'+escHtml(after)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }else if(h.kind==='新增'){
+    changeTable='<div class="muted">本次为首次收录（新上架），没有变更前的值。</div>';
+  }else if(h.kind==='下架'){
+    changeTable='<div class="muted">本次为下架，原月费 '+money(h.price)+'/月。</div>';
+  }else{
+    changeTable='<div class="muted">未提供逐字段对比，完整详情见下方。</div>';
+  }
+  const det=h.details&&typeof h.details==='object'?h.details:null;
+  const detKeys=det?Object.keys(det).filter(k=>det[k]!=null&&det[k]!==''):[];
+  const detList=detKeys.length?'<ul class="pub-list">'+detKeys.map(k=>'<li><b>'+escHtml(CHANGE_LABELS[k]||k)+'：</b>'+escHtml(String(det[k]))+'</li>').join('')+'</ul>':'<div class="muted">无补充详情字段。</div>';
+  $('hcBody').innerHTML=
+    '<div class="pub-group-title">资费概要</div>'+basicTable+
+    '<div class="pub-group-title">本次变更（'+(keys.length||'—')+' 个字段）</div>'+changeTable+
+    '<div class="pub-group-title">完整详情字段</div>'+detList+
+    '<div class="muted" style="padding:10px 2px;font-size:11px">记录日期：'+escHtml(h.date)+' · 运营商：'+escHtml(CARRIERS[h.op].name)+'</div>';
+  openModal('historyModal');
+}
+$('hcCopy').addEventListener('click',()=>{
+  const h=histRows[historyDetailId];if(!h)return;
+  const old=h.old||{};
+  const lines=[h.name,'运营商：'+CARRIERS[h.op].name,'省份：'+(h.province||'全国'),'日期：'+h.date,
+    '变更类型：'+h.kind,'编号：'+(h.code||'—'),'月费：'+money(h.price)+'/月','本次摘要：'+changeText(h),
+    '变更字段：',...Object.keys(old).map(k=>'  '+(CHANGE_LABELS[k]||k)+'：'+diffVal(old[k],k)+' → '+diffVal(changeFieldVal(h,k),k))];
+  const done=()=>toast('变更详情已复制');
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(lines.join('\n')).then(done).catch(()=>fallbackCopy(lines.join('\n'),done));}
+  else fallbackCopy(lines.join('\n'),done);
+});
 $('dCopy').addEventListener('click',()=>{
   const d=DATA.find(x=>x.id===detailId);if(!d)return;
   const e=d.extra||{};

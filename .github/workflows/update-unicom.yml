@@ -96,6 +96,7 @@ jobs:
           python3 scripts/build_data.py --carriers unicom \
             --merge-from /tmp/unicom-shards \
             --out data/ops/unicom \
+            --baseline-if-empty \
             --baseline-provinces '湖北,湖南,广东,广西,海南,重庆,四川,贵州,云南,西藏,陕西,甘肃,青海,宁夏,新疆'
 
       - name: 校验本家数据
@@ -125,7 +126,6 @@ jobs:
           WATCH_RULES: ${{ vars.WATCH_RULES || 'unicom:*' }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}

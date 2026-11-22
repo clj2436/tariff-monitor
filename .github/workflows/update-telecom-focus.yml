@@ -77,7 +77,6 @@ jobs:
           WATCH_RULES: 'telecom:新疆|吉林|江西|贵州|四川|山西'
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
@@ -91,7 +90,7 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/notify_dingtalk.py \
-            --ignore-config \
+            --force-rules 'telecom:新疆|吉林|江西|贵州|四川|山西' \
             --input data/ops/telecom-focus/current_changes.json \
             --state data/ops/telecom-focus/.notify_state.json \
             --tag '★重点·电信'

@@ -41,7 +41,7 @@ jobs:
           UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
           GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '90' }}
         run: |
-          python3 scripts/build_data.py --carriers telecom --out data/ops/telecom
+          python3 scripts/build_data.py --carriers telecom --out data/ops/telecom --baseline-if-empty
 
       - name: 校验本家数据
         run: |
@@ -67,7 +67,6 @@ jobs:
           WATCH_RULES: ${{ vars.WATCH_RULES || 'telecom:*' }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}

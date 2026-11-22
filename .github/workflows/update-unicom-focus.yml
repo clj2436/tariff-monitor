@@ -80,7 +80,6 @@ jobs:
           WATCH_RULES: 'unicom:江西|吉林|贵州|山西'
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          DINGTALK_AT_MOBILES: ${{ vars.DINGTALK_AT_MOBILES }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
@@ -94,7 +93,7 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/notify_dingtalk.py \
-            --ignore-config \
+            --force-rules 'unicom:江西|吉林|贵州|山西' \
             --input data/ops/unicom-focus/current_changes.json \
             --state data/ops/unicom-focus/.notify_state.json \
             --tag '★重点·联通'
