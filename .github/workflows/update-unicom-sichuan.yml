@@ -74,33 +74,12 @@ jobs:
             print('四川联通校验通过：%d 条，本轮 %d 条变更' % (len(items), meta.get('changes', 0)))
           PYCHECK
 
-      - name: 推送四川联通变化到钉钉
-        continue-on-error: true     # 推送失败不阻断数据提交
-        env:
-          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
-          WATCH_RULES: 'unicom:四川'
-          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
-          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
-          SITE_URL: ${{ vars.SITE_URL }}
+      - name: 生成本轮变化报告页（供钉钉链接直达，随数据一起提交上线）
+        continue-on-error: true   # 报告页生成失败不阻断数据抓取与推送
         run: |
-          python3 scripts/notify_dingtalk.py \
-            --force-rules 'unicom:四川' \
+          python3 scripts/build_report.py \
             --input data/ops/unicom-sichuan/current_changes.json \
-            --report-out data/ops/unicom-sichuan/report.html \
-            --state data/ops/unicom-sichuan/.notify_state.json \
-            --bot focus \
+            --out data/ops/unicom-sichuan/report.html \
             --tag '★重点·联通四川'
 
       - name: 提交专项数据
@@ -129,3 +108,34 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/purge_cdn.py --op unicom-sichuan
+
+      - name: 推送四川联通变化到钉钉
+        continue-on-error: true     # 推送失败不阻断数据提交
+        env:
+          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
+          WATCH_RULES: 'unicom:四川'
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/unicom-sichuan/report.html"
+          echo "[报告] 报告页地址：$REPORT_URL"
+          python3 scripts/notify_dingtalk.py \
+            --force-rules 'unicom:四川' \
+            --input data/ops/unicom-sichuan/current_changes.json \
+            --report-url "$REPORT_URL" \
+            --state data/ops/unicom-sichuan/.notify_state.json \
+            --bot focus \
+            --tag '★重点·联通四川'
