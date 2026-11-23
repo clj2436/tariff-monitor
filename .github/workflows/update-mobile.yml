@@ -128,6 +128,12 @@ jobs:
             --input data/ops/mobile/current_changes.json \
             --out data/ops/mobile/report.html \
             --tag '其他·移动'
+          STAMP=$(date -u +%Y%m%dT%H%M%S)
+          if [ -f data/ops/mobile/report.html ]; then
+            cp data/ops/mobile/report.html "data/ops/mobile/report-$STAMP.html"
+            echo "REPORT_STAMP=$STAMP" >> "$GITHUB_ENV"
+            echo "[报告] 已生成永久快照 report-$STAMP.html"
+          fi
 
       - name: 生成下架资费加密存档（永久累积，需密码解密）
         continue-on-error: true   # 存档失败不阻断主数据抓取
@@ -189,7 +195,11 @@ jobs:
           MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
-          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/mobile/report.html?v=2"
+          if [ -n "${REPORT_STAMP:-}" ]; then
+            REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/mobile/report-${REPORT_STAMP}.html?v=2"
+          else
+            REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/mobile/report.html?v=2"
+          fi
           echo "[报告] 报告页地址：$REPORT_URL"
           python3 scripts/notify_dingtalk.py \
             --force-rules 'mobile:*' \
