@@ -126,34 +126,12 @@ jobs:
             print('警告：联通板块不足 30 个，可能仍有省份抓取失败')
           PYCHECK
 
-      - name: 推送本家变化到钉钉
-        continue-on-error: true     # 推送失败不阻断数据提交
-        env:
-          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
-          WATCH_RULES: ${{ vars.WATCH_RULES || 'unicom:*' }}
-          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
-          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
-          SITE_URL: ${{ vars.SITE_URL }}
+      - name: 生成本轮变化报告页（供钉钉链接直达，随数据一起提交上线）
+        continue-on-error: true   # 报告页生成失败不阻断数据抓取与推送
         run: |
-          python3 scripts/notify_dingtalk.py \
-            --force-rules 'unicom:*' \
-            --exclude-rules 'unicom:四川|江西|吉林|贵州|山西' \
+          python3 scripts/build_report.py \
             --input data/ops/unicom/current_changes.json \
-            --report-out data/ops/unicom/report.html \
-            --state data/ops/unicom/.notify_state.json \
-            --bot other \
+            --out data/ops/unicom/report.html \
             --tag '其他·联通'
 
       - name: 提交本家数据
@@ -182,3 +160,35 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/purge_cdn.py --op unicom
+
+      - name: 推送本家变化到钉钉
+        continue-on-error: true     # 推送失败不阻断数据提交
+        env:
+          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
+          WATCH_RULES: ${{ vars.WATCH_RULES || 'unicom:*' }}
+          DINGTALK_WEBHOOK_OTHER: ${{ secrets.DINGTALK_WEBHOOK_OTHER }}
+          DINGTALK_SECRET_OTHER: ${{ secrets.DINGTALK_SECRET_OTHER }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/unicom/report.html"
+          echo "[报告] 报告页地址：$REPORT_URL"
+          python3 scripts/notify_dingtalk.py \
+            --force-rules 'unicom:*' \
+            --exclude-rules 'unicom:四川|江西|吉林|贵州|山西' \
+            --input data/ops/unicom/current_changes.json \
+            --report-url "$REPORT_URL" \
+            --state data/ops/unicom/.notify_state.json \
+            --bot other \
+            --tag '其他·联通'
