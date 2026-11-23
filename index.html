@@ -1405,12 +1405,11 @@ function renderCarrierOpts(){
     '<span class="opt-ico">'+CARRIERS[k].short.charAt(0)+'</span><span class="opt-main"><div class="opt-name">'+CARRIERS[k].name+'</div><div class="opt-desc">'+CARRIERS[k].desc+'</div></span>'+(state.op===k?'<span>✓</span>':'')+'</button>').join('');
   $('carrierOpts').querySelectorAll('[data-op]').forEach(b=>b.addEventListener('click',async()=>{
     const op=b.dataset.op;
-    const need=sourcesForOp(op);
-    const missing=need.filter(s=>!opState[s]);
     state.op=op;state.page=1;saveSel();
     renderCarrierOpts();updateSwitchLabel();
-    if(missing.length){
-      // 目标运营商尚未加载：先显示加载态，拉完再渲染，避免出现「0 条」假象
+    // 只看主源是否就绪：后台预加载通常已完成，绝大多数切换是即时的、无重新加载。
+    // 仅当主源确实还没到（用户切得极快/网络异常）才显示加载态，且只等主源。
+    if(!(opState[op]&&opState[op].items&&opState[op].items.length)){
       const tag=$('dataTag');tag.textContent='加载中…';tag.style.background='#fef3c7';tag.style.color='#92400e';
       loadState='loading';render();
       try{await ensureOp(op,'真实数据');}catch(e){}
@@ -1725,7 +1724,7 @@ function histKey(h){
 // 缓存改用 IndexedDB：全量数据约 130MB，localStorage 仅 5~10MB，根本写不进去，
 // 导致每次打开都要全量重下。IndexedDB 容量足、异步写不卡主线程；写入合并见 scheduleCache。
 const CACHE_DB='tariff_cache_db', CACHE_STORE='kv', CACHE_KEY='meta';
-const CACHE_VER=12;           // 结构或逻辑变更时递增，自动作废旧缓存（v12：按需加载——缓存可能只含部分源，放宽校验）
+const CACHE_VER=13;           // 结构或逻辑变更时递增，自动作废旧缓存（v13：首屏只等主源消除专项源闪现，后台立即并行预拉全部源）
 const CACHE_TTL=12*3600*1000; // 12 小时
 let _cacheDb=null;
 const OPS=['mobile','telecom','unicom','gb','unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus'];
@@ -1937,10 +1936,9 @@ function showLoadError(){
   $('notice').textContent='资费数据暂时无法加载。本页只展示运营商官网公示的真实数据，未使用任何示例数据；请点「刷新数据」重试。';
   render();
 }
-// 按需加载：确保某运营商的源都已拉取到位。返回是否有拉取动作。
-async function ensureOp(op,label){
-  const need=sourcesForOp(op);
-  const missing=need.filter(s=>!opState[s]); // 缓存里没有的源才需要拉
+// 确保指定源已加载。label=null 表示静默（只落盘、不重渲染）。
+async function ensureSources(list,label){
+  const missing=list.filter(s=>!opState[s]); // 缓存里没有的源才需要拉
   if(!missing.length) return false;
   let changed=[];
   try{changed=await probeOps(false,missing);}catch(e){}
@@ -1951,18 +1949,25 @@ async function ensureOp(op,label){
       if(m&&typeof m.count==='number') changed.push([s,m,opSig(m)]);
     }catch(e){}
   }
-  if(changed.length) await refreshOps(changed,label||'真实数据');
+  if(changed.length) await refreshOps(changed,label===undefined?'真实数据':label);
   return changed.length>0;
 }
-// 后台预加载其余运营商的源：不阻塞首屏，用户切换时通常已就绪。
+// 首屏与切换只需保证【主源】就绪。主源本身含全部资费，是完整列表；
+// 专项源是体积更小的补充/覆盖，交给后台静默补齐，避免它先到先渲染导致"先出现专项源"。
+function ensureOp(op,label){return ensureSources([op],label);}
+// 后台预加载其余全部源（主源优先、专项源随后）：不阻塞首屏，
+// 主源就绪后立即启动，用户切换运营商时数据早已到位，不会再触发重新拉取。
 async function preloadRest(){
-  const need=new Set();OPS.forEach(op=>need.add(op));
-  sourcesForOp(state.op).forEach(s=>need.delete(s));
-  const rest=OPS.filter(op=>need.has(op)&&!opState[op]);
+  const rest=OPS.filter(op=>!opState[op]);
   if(!rest.length) return;
-  let changed=[];
-  try{changed=await probeOps(false,rest);}catch(e){}
-  if(changed.length) await refreshOps(changed,null); // label=null：不改写"更新于"标签，静默补齐
+  // 主源与专项源并行拉取，尽快补齐全部数据，缩短切换等待窗口。
+  await Promise.all([
+    ensureSources(rest.filter(op=>FOCUS_OPS.indexOf(op)<0),null),  // 其他运营商主源
+    ensureSources(rest.filter(op=>FOCUS_OPS.indexOf(op)>=0),null)  // 专项源
+  ]);
+  // 专项源的"优先覆盖"需要一次合并才生效。此时主源数据已完整，静默重渲染
+  // 应用覆盖即可，不会出现 0 条或"先出现专项源"的闪现。
+  if(DATA.length){try{applyData(null);}catch(e){}}
 }
 async function loadData(){
   // 1) 读 IndexedDB 缓存（异步），命中即秒开。缓存带版本/过期/结构校验，脏快照不会命中。
@@ -1974,13 +1979,14 @@ async function loadData(){
     const tag=$('dataTag');tag.textContent='正在加载…';tag.style.background='#fef3c7';tag.style.color='#92400e';
     $('notice').textContent='正在加载线上资费数据，通常几秒即可完成，请稍候…';
   }
-  // 2) 首屏只加载当前运营商所需的源（全量+对应专项，约 2.4MB），而非全部 9 个源（9.3MB）。
+  // 2) 首屏只等当前运营商的【主源】（数据完整，约 5MB gzip）。
+  //    不再把专项源一起等：专项源小、回得快，先到先渲染会闪出"专项源"的少量数据。
   const label=cached?'更新中':'真实数据';
   let didFetch=false;
   try{didFetch=await ensureOp(state.op,label);}catch(e){}
   if(!didFetch&&!cached&&!DATA.length){showLoadError();return;}
-  // 兜底：若当前运营商仍一条数据都没有（脏缓存 / 源失败），强制重拉该运营商一次，绝不把 0 条当正常结果展示。
-  const myCount=sourcesForOp(state.op).reduce((s,op)=>s+(opState[op]&&opState[op].items||[]).length,0);
+  // 兜底：若主源仍一条数据都没有（脏缓存 / 源失败），强制重拉一次，绝不把 0 条当正常结果展示。
+  const myCount=(opState[state.op]&&opState[state.op].items||[]).length;
   if(!myCount){
     try{await ensureOp(state.op,'真实数据');}catch(e){}
     if(!DATA.length&&!cached){showLoadError();return;}
@@ -1990,8 +1996,9 @@ async function loadData(){
     const tag=$('dataTag');tag.textContent='离线缓存';tag.style.background='#fef3c7';tag.style.color='#92400e';
   }
   startPolling();
-  // 3) 后台静默预加载其余运营商，用户切换时大概率已就绪
-  setTimeout(()=>{preloadRest().catch(()=>{});},1200);
+  // 3) 主源渲染完立即后台预加载其余全部源（去掉原先 1.2s 延迟）：
+  //    用户几乎不会在切换时撞上"还没拉到"的重新加载。
+  preloadRest().catch(()=>{});
 }
 
 /* ---------- 启动 ---------- */
