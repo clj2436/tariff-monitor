@@ -1,5 +1,17 @@
 [
   {
+    "time": "2026-11-23 00:57:51",
+    "tag": "",
+    "status": "skip",
+    "count": 0,
+    "detail": "本轮无变更",
+    "channels": [],
+    "bot": "other",
+    "dingtalk": true,
+    "dingtalk_focus": false,
+    "dingtalk_other": true
+  },
+  {
     "time": "2026-11-22 16:45:19",
     "tag": "",
     "status": "ok",
