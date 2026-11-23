@@ -69,34 +69,12 @@ jobs:
               '（缺省：%s）' % ','.join(missing) if missing else ''))
           PYCHECK
 
-      - name: 推送重点变化到钉钉
-        continue-on-error: true
-        env:
-          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
-          WATCH_RULES: 'gb:江西|吉林|贵州|四川|山西'
-          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
-          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
-          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
-          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
-          SITE_URL: ${{ vars.SITE_URL }}
+      - name: 生成本轮变化报告页（供钉钉链接直达，随数据一起提交上线）
+        continue-on-error: true   # 报告页生成失败不阻断数据抓取与推送
         run: |
-          python3 scripts/notify_dingtalk.py \
-            --force-rules 'gb:江西|吉林|贵州|四川|山西' \
+          python3 scripts/build_report.py \
             --input data/ops/gb-focus/current_changes.json \
-            --report-out data/ops/gb-focus/report.html \
-            --state data/ops/gb-focus/.notify_state.json \
-            --bot focus \
-
+            --out data/ops/gb-focus/report.html \
             --tag '★重点·广电'
 
       - name: 提交专项数据
@@ -124,3 +102,34 @@ jobs:
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
           python3 scripts/purge_cdn.py --op gb-focus
+
+      - name: 推送重点变化到钉钉
+        continue-on-error: true
+        env:
+          NOTIFY_CHANNELS: ${{ vars.NOTIFY_CHANNELS || 'dingtalk' }}
+          WATCH_RULES: 'gb:江西|吉林|贵州|四川|山西'
+          DINGTALK_WEBHOOK_FOCUS: ${{ secrets.DINGTALK_WEBHOOK_FOCUS }}
+          DINGTALK_SECRET_FOCUS: ${{ secrets.DINGTALK_SECRET_FOCUS }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/gb-focus/report.html"
+          echo "[报告] 报告页地址：$REPORT_URL"
+          python3 scripts/notify_dingtalk.py \
+            --force-rules 'gb:江西|吉林|贵州|四川|山西' \
+            --input data/ops/gb-focus/current_changes.json \
+            --report-url "$REPORT_URL" \
+            --state data/ops/gb-focus/.notify_state.json \
+            --bot focus \
+            --tag '★重点·广电'
