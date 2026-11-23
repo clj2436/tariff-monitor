@@ -242,7 +242,7 @@ async function loadAll(){
   await Promise.all(OPS.map(async op=>{
     let r={op,ok:false,data:null,msg:''};
     try{
-      const resp=await fetch('data/ops/'+op.id+'/archive.bin?_='+Date.now(),{cache:'no-store'});
+      const resp=await fetch('data/ops/'+op.id+'/archive.bin?v=2');
       if(resp.status===404){r.msg='暂无存档'}
       else if(!resp.ok){r.msg='HTTP '+resp.status}
       else{
@@ -257,19 +257,17 @@ async function loadAll(){
   if(!results.some(r=>r.ok)&&bad.length){
     $('#loadErr');throw new Error(bad[0].msg);
   }
-  vaults={};let total=0,offline=0,history=0,updated='';
+  vaults={};records=[];let total=0,offline=0,history=0,updated='';
+  const idx=new Map();  // 用 Map 索引去重，避免 records.find 的 O(n²) 线性扫描（6万条时差 700 倍）
   results.forEach(r=>{
     if(!r.ok||!r.data||!r.data.records)return;
     vaults[r.op.id]=r.data;
     Object.entries(r.data.records).forEach(([k,rec])=>{
       // 专项源与全量源重复时，保留更完整的（变化记录更多的）
-      const prev=records.find(x=>x.__key===k);
       const merged=mkRecord(rec,r.op.id);
-      if(prev){
-        if((merged.h||[]).length>(prev.h||[]).length){
-          records[records.indexOf(prev)]=merged;
-        }
-      }else records.push(merged);
+      const pos=idx.get(k);
+      if(pos===undefined){idx.set(k,records.length);records.push(merged);}
+      else if((merged.h||[]).length>(records[pos].h||[]).length){records[pos]=merged;}
     });
   });
   records.forEach(rec=>{total++;if(rec.st==='已下架')offline++;history+=(rec.h||[]).length});
