@@ -135,7 +135,7 @@ jobs:
           MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
-          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/unicom-focus/report.html"
+          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/unicom-focus/report.html?v=2"
           echo "[报告] 报告页地址：$REPORT_URL"
           python3 scripts/notify_dingtalk.py \
             --force-rules 'unicom:江西|吉林|贵州|山西' \
