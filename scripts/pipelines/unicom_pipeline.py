@@ -10,7 +10,7 @@
 用法:
   python3 unicom_pipeline.py --prev-dir PATH --out-dir PATH [--scopes hunan,quanguo]
 """
-import json, time, os, sys, urllib.request, http.cookiejar, hashlib, argparse, math
+import json, time, os, sys, urllib.request, urllib.parse, http.cookiejar, hashlib, argparse, math
 
 from pipeline_common import (is_sampling_noise, mark_noise, has_real_change,
                              modified_details_for, filter_test_items, slim_change, diff_items, stable_business_key,
@@ -26,6 +26,13 @@ HDRS = {
 _cj = http.cookiejar.CookieJar()
 _op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cj),
                                   urllib.request.HTTPSHandler(context=make_ssl_context()))
+
+# 官网资费专区真实抓法所需的 POST 公共头参数（从 imgxx 页面 JS 逆向得到）。
+# threeLevelName 接口必须 POST 且带这一串固定参数才返回全量名称表；GET 会返回空。
+POST_COMMON = ("duanlianjieabc=&channelCode=&serviceType=&saleChannel=&externalSources="
+               "&contactCode=&version=WT")
+POST_HDRS = dict(HDRS)
+POST_HDRS["Content-Type"] = "application/x-www-form-urlencoded"
 
 NAME = {
     "quanguo": "全网(全国)",
@@ -71,6 +78,84 @@ def api(path, q="", retries=5):
             time.sleep(wait)
 
 
+def post_api(path, fields, retries=4):
+    """POST 调用官网三级接口（threeLevelName 等），带官方固定头参数。
+
+    ★ 官网资费专区（imgxx.client.10010.com）真实抓法与老脚本不同：
+      indexData(分类树) → threeLevelName(某分类全量名称+ID) → operateData(批量详情)。
+    这套接口用老域名 + 固定 POST 参数即可访问（GitHub Actions 出口已验证）。
+    每次补一个 behaviorId（官网格式，实测任意值均可）。
+    """
+    fields = dict(fields)
+    fields.setdefault("behaviorId", time.strftime("2W1E3T11D6VTW1OO%Y%m%d%H%M%S"))
+    body = POST_COMMON + "&" + urllib.parse.urlencode(fields)
+    for a in range(retries):
+        try:
+            req = urllib.request.Request(BASE_API + path, data=body.encode("utf-8"), headers=POST_HDRS)
+            with _op.open(req, timeout=40) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            if a == retries - 1:
+                raise
+            wait = 1.5 * (a + 1)
+            print("[post] %s 失败(%s)，%.1fs 后重试(%d/%d)" % (
+                path, (getattr(e, "reason", None) or str(e))[:60], wait, a + 2, retries))
+            time.sleep(wait)
+
+
+def fetch_category_names(province_id, city_id, attr, seen):
+    """官网同款「分类遍历」补漏：indexData 分类树 → threeLevelName 全量名称表。
+
+    为什么必须加它：老脚本所有请求写死 firstLevel=1&secondLevel=1001（套餐/移网），
+    而「马上有150分钟」等加购包属于 加装包(2)/语音包(2003)、营销活动(3)、停售(99)
+    等其它分类，永远扫不到。官网正是遍历 indexData 的全部 (一级,二级) 分类，
+    逐个用 threeLevelName 拿该分类下全部资费名称+ID，再 operateData 取详情。
+
+    ★ 只补不删：结果并入 seen（调用方已有的费用分段/随机采样结果），取并集。
+      两套接口返回的业务集合只有约 1/3 重合（各自覆盖不同业务），若直接「替换」
+      会把旧管线抓到的 1500+ 条误判成下架。补漏是当前阶段最稳的增量方式。
+    ★ 分类名存中文（fn/sn），与老脚本 firstLevel/secondLevel 字段口径一致，
+      保证 stable_business_key 跨轮次稳定，不产生重复条目。
+    """
+    try:
+        d = api("indexData", "provinceId=%s&cityId=%s" % (province_id, city_id))
+        levels = (d.get("data") or {}).get("levelList") or []
+    except Exception as e:
+        print("    [分类遍历] 取分类树失败: %s" % (getattr(e, "reason", None) or str(e))[:60])
+        return 0
+    added = 0
+    cats = 0
+    for L in levels:
+        fl = L.get("firstLevel")
+        fn = L.get("firstLevelName", "")
+        for S in (L.get("secondLevels") or []):
+            sl = S.get("secondLevel")
+            sn = S.get("secondLevelName", "")
+            try:
+                nd = post_api("threeLevelName", {
+                    "tariffAttributes": attr, "firstLevel": fl, "secondLevel": sl,
+                    "provinceId": province_id, "cityId": city_id,
+                }, retries=3)
+            except Exception as e:
+                print("    [分类 %s/%s] threeLevelName 失败: %s" % (
+                    fn, sn, (getattr(e, "reason", None) or str(e))[:50]))
+                continue
+            cats += 1
+            for x in (nd.get("data") or {}).get("dataList") or []:
+                if not isinstance(x, dict) or not x.get("id"):
+                    continue
+                if x["id"] in seen:
+                    continue
+                seen[x["id"]] = {
+                    "id": x["id"], "title": x.get("name", ""), "fee": "",
+                    "firstLevel": fn, "secondLevel": sn,
+                }
+                added += 1
+            time.sleep(0.12)
+    print("    分类遍历：%d 个二级分类，新增 %d 条（累计 %d）" % (cats, added, len(seen)))
+    return added
+
+
 def build_jobs():
     """动态获取省份表：quanguo + 31 省 (provCode, cityCode, attr)。"""
     d = api("indexData")
@@ -90,6 +175,9 @@ def build_jobs():
 FETCH_TIME_BUDGET = int(os.getenv("UNICOM_TIME_BUDGET") or "300")
 FETCH_MIN_ROUNDS = int(os.getenv("UNICOM_MIN_ROUNDS") or "60")
 FETCH_PASSES = int(os.getenv("UNICOM_PASSES") or "12")
+
+# 官网同款分类遍历补漏（默认开启；UNICOM_CATEGORY=0 可关闭退回旧行为）
+CATEGORY_ENABLE = (os.getenv("UNICOM_CATEGORY") or "1") != "0"
 
 # 费用分段扫描（默认开启；UNICOM_FEE_SEGMENT=0 可关闭）
 FEE_ENABLE = (os.getenv("UNICOM_FEE_SEGMENT") or "1") != "0"
@@ -160,6 +248,12 @@ def fetch_pool(province_id, city_id, attr, pages=20, passes=None, min_rounds=Non
     min_rounds = FETCH_MIN_ROUNDS if min_rounds is None else min_rounds
     time_budget = FETCH_TIME_BUDGET if time_budget is None else time_budget
     seen = {}
+    # ★ 官网同款分类遍历补漏（2026-11-23）：先用 indexData 分类树 + threeLevelName
+    #   拿到全部一级/二级分类下的名称表，补上老脚本写死 1001 分类而漏掉的加装包、
+    #   营销活动、停售等业务（如四川「马上有150分钟国内语音包」= 加装包/语音包 2/2003）。
+    #   环境变量 UNICOM_CATEGORY=0 可关闭以退回旧行为。
+    if CATEGORY_ENABLE:
+        fetch_category_names(province_id, city_id, attr, seen)
     if FEE_ENABLE:
         _sweep_fee(province_id, city_id, attr, page_size, seen)
         print("    费用分段扫描完成：累计 %d 条" % len(seen))
