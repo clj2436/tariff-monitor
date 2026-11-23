@@ -182,7 +182,8 @@ def _full_detail(h):
             continue
         left.append(["补充信息 %d" % (len(left) + 1), _short(v, 600)])
     extra += left
-    service = _detail_value(h, "service") or _short(h.get("note"), 400)
+    # note 已从数据中移除（它是 note_full 的前缀子串），兜底改用 note_full
+    service = _detail_value(h, "service") or _short(h.get("note_full"), 400)
     note_full = _short(h.get("note_full"), 2000)
     return {
         "base": base, "resource": res, "rules": rules, "extra": extra,

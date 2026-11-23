@@ -220,7 +220,9 @@ def mk(op, name, price, typ, owner, data, voice, broadband, note, province, code
     return {
         "op": op, "name": norm(name), "price": price, "type": typ, "owner": owner,
         "data": norm(data), "voice": norm(voice), "broadband": norm(broadband),
-        "note": norm(note)[:400], "note_full": full_note[:2000],
+        # note 是 note_full 的前缀子串（content 完全被包含），单独存储纯属冗余：
+        # 全站 7 万条里这段重复文本占约 13% 体积。展示/搜索统一走 note_full。
+        "note_full": full_note[:2000],
         "province": province, "code": norm(code), "details": extra,
         "source": CARRIER_NAMES[op] + "官网",
     }
@@ -374,7 +376,9 @@ def stable_key(d):
 
 # 参与变化检测的基础字段。技术字段（id/code/source/date/op/province/type/owner）
 # 不参与——它们要么恒定，要么本就由 diff 流程生成，比较无意义。
-DIFF_BASE_FIELDS = ("price", "data", "voice", "broadband", "note", "note_full")
+# note 不参与：它是 note_full 的前缀子串，内容完全被 note_full 覆盖；且新数据
+# 不再单独存 note，若继续比较会把「note 有值→无值」误报成全量修改。
+DIFF_BASE_FIELDS = ("price", "data", "voice", "broadband", "note_full")
 
 
 def _diff_norm(v):

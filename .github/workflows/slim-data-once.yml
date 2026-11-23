@@ -1,0 +1,88 @@
+name: 一次性数据瘦身（移除冗余 note）
+
+# 一次性任务：把线上现有 items.json 里冗余的 note 字段删掉（note_full 已完整包含其内容）。
+# 不重新抓取、不改任何资费内容，只做字段级瘦身，避免覆盖抓取器的最新数据。
+# 执行完可删除本文件。与新版 build_data.py（不再生成 note）保持一致。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tariff-data-write
+  cancel-in-progress: false
+
+jobs:
+  slim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出 main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 执行瘦身（只删 note，逐条校验 note_full 存在）
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          targets = ["data/items.json"]
+          for op in sorted(os.listdir("data/ops")):
+              p = os.path.join("data/ops", op, "items.json")
+              if os.path.exists(p):
+                  targets.append(p)
+          total_removed = 0
+          for p in targets:
+              with open(p, encoding="utf-8") as f:
+                  rows = json.load(f)
+              if not isinstance(rows, list):
+                  continue
+              removed = 0
+              for r in rows:
+                  if not isinstance(r, dict):
+                      continue
+                  # 安全护栏：note_full 缺失时保留 note，避免丢字段
+                  if "note" in r and r.get("note_full"):
+                      del r["note"]
+                      removed += 1
+              with open(p, "w", encoding="utf-8") as f:
+                  json.dump(rows, f, ensure_ascii=False, separators=(",", ":"))
+              print(f"[slim] {p}: {len(rows)} 条, 删除 {removed} 个 note")
+              total_removed += removed
+          print(f"[slim] 合计删除 {total_removed} 个冗余 note 字段")
+          PY
+
+      - name: 校验结果
+        run: |
+          python3 - <<'PY'
+          import json, os
+          for p in ["data/items.json"] + [
+              os.path.join("data/ops", op, "items.json")
+              for op in sorted(os.listdir("data/ops"))
+              if os.path.exists(os.path.join("data/ops", op, "items.json"))
+          ]:
+              rows = json.load(open(p, encoding="utf-8"))
+              n_note = sum(1 for r in rows if isinstance(r, dict) and "note" in r)
+              n_full = sum(1 for r in rows if isinstance(r, dict) and r.get("note_full"))
+              print(f"[check] {p}: {len(rows)} 条, 残留 note={n_note}, 有 note_full={n_full}")
+          print("[check] 校验完成：残留 note 仅可能来自 note_full 缺失的条目，属预期")
+          PY
+
+      - name: 提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A data/
+          if git diff --cached --quiet; then
+            echo "没有需要提交的改动"
+          else
+            git commit -m "perf: 数据瘦身 — 删除冗余 note 字段（note_full 已包含）"
+            git push origin HEAD:main
+          fi

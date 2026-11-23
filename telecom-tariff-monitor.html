@@ -576,7 +576,7 @@ function currentRows(){
   if(state.priceMax!==''&&Number.isFinite(pmax)) rows=rows.filter(d=>Number(d.price)<=pmax);
   if(state.favOnly) rows=rows.filter(d=>state.favs.has(d.id));
   const q=state.q.trim().toLowerCase();
-  // 覆盖全部字段：adaptRemote 已预计算 _hay；缺索引时按需补一次
+  // 覆盖全部字段：_hay 改为懒计算，仅对当前可见子集按需补一次（只对命中的运营商，不全量预拼）
   if(q) rows=rows.filter(d=>{
     if(!d._hay){
       const e=d.extra||{};
@@ -1664,10 +1664,8 @@ function adaptRemote(raw){
     const off=/^\d{4}-\d{2}-\d{2}$/.test(String(offRaw))?String(offRaw).slice(0,10):'';
     item.offDate=off;
     item.offline=!!(off && off < TODAY());
-    // 预计算全字段搜索串：一次性拼接，避免每次输入时对上千条逐条 Object.values
-    item._hay=[item.name,item.code,item.type,item.owner,item.source,CARRIERS[op].name,prov,
-      item.data,item.voice,item.broadband,item.price,item.note,item.date,
-      ...Object.values(extra)].join(' ').toLowerCase();
+    // 搜索串改为懒计算：6.4 万条预拼 _hay 会固化 40+MB 字符串、拖慢首次渲染与内存。
+    // 真正输入搜索词时才由 hay()/currentRows 按需补算并缓存（见下方 _hay 兜底逻辑）。
     out.push(item);
   });
   return out;
@@ -1711,10 +1709,10 @@ function histKey(h){
  * 网页并行读 5 个 latest.json（每个约 200B）：哪个源签名变了才拉那份 items/history，
  * 合并时同一资费按「运营商+编号+省份+名称」去重，专项源优先。任一路慢/失败都不影响其他源。
  */
-// 缓存改用 IndexedDB：全量数据约 127MB，localStorage 仅 5~10MB，根本写不进去，
-// 导致每次打开都要全量重下并长时间停在示例数据。IndexedDB 容量足、异步写不卡主线程。
+// 缓存改用 IndexedDB：全量数据约 130MB，localStorage 仅 5~10MB，根本写不进去，
+// 导致每次打开都要全量重下。IndexedDB 容量足、异步写不卡主线程；写入合并见 scheduleCache。
 const CACHE_DB='tariff_cache_db', CACHE_STORE='kv', CACHE_KEY='meta';
-const CACHE_VER=9;            // 结构或逻辑变更时递增，自动作废旧缓存（v9 修复假变化污染后强制刷新）
+const CACHE_VER=10;           // 结构或逻辑变更时递增，自动作废旧缓存（v10：移除冗余 note 字段 + 搜索索引改为懒计算，内存减约 1/3）
 const CACHE_TTL=12*3600*1000; // 12 小时
 let _cacheDb=null;
 const OPS=['mobile','telecom','unicom','gb','unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus'];
@@ -1845,7 +1843,18 @@ async function probeOps(force){
   return changed;
 }
 // 拉取指定运营商的 items/history，更新 opState。
-// onEach：每个源拉取成功即刻回调（逐源渲染，用户尽早看到数据，不必等全部 127MB 下完）。
+// 渲染/落盘都做合并：9 个源并行到达时，逐源全量 combine+adapt（约 1.7s）与
+// 逐源把上百 MB 状态写进 IndexedDB 是「打开慢、切页卡」的主因。改为定时器合并——
+// 每个源到达只安排一次延迟任务，窗口内到齐的源只重算/落盘一次，仍保证尽早可见。
+let _renderTimer=null,_cacheTimer=null;
+function scheduleRender(label){
+  if(_renderTimer) clearTimeout(_renderTimer);
+  _renderTimer=setTimeout(()=>{_renderTimer=null;try{applyData(label);}catch(e){}},120);
+}
+function scheduleCache(){
+  if(_cacheTimer) clearTimeout(_cacheTimer);
+  _cacheTimer=setTimeout(()=>{_cacheTimer=null;writeCache();},300);
+}
 async function refreshOps(list,onEach){
   if(!list.length) return 0;
   let n=0;
@@ -1858,10 +1867,17 @@ async function refreshOps(list,onEach){
       if(!Array.isArray(items)) return;
       opState[op]={sig,meta:m,items,hist:Array.isArray(hist)?hist:[]};
       n++;
-      writeCache(); // 每成功一个源即落盘，避免中途失败丢掉已拉到的数据
-      if(onEach){try{onEach(op);}catch(e){}} // 渲染失败不影响落盘与其他源
+      scheduleCache();              // 合并落盘：窗口内多个源只写一次
+      if(onEach) scheduleRender(onEach); // 合并渲染：窗口内多个源只重算一次
     }catch(e){}
   }));
+  // 全部到齐：清掉未触发的定时器，立即做一次最终渲染+落盘，避免停留在中间态
+  if(_renderTimer){clearTimeout(_renderTimer);_renderTimer=null;}
+  if(_cacheTimer){clearTimeout(_cacheTimer);_cacheTimer=null;}
+  if(n){
+    try{writeCache();}catch(e){}
+    if(onEach){try{applyData(onEach);}catch(e){}}
+  }
   return n;
 }
 function allSigs(){return OPS.map(op=>op+(opState[op]?':'+opState[op].sig:'')).join('|');}
@@ -1877,8 +1893,7 @@ function startPolling(){
         if(m&&typeof m.count==='number'&&!changed.some(x=>x[0]===op)) changed.push([op,m,opSig(m)]);
       }
       if(changed.length){
-        const n=await refreshOps(changed);
-        if(n){writeCache();applyData('实时抓取中');}
+        const n=await refreshOps(changed,'实时抓取中'); // 拉取+合并渲染/落盘由 refreshOps 统一处理
       }
     }catch(e){}
   },30000); // 30 秒探测一次，各家 meta 仅几十字节
@@ -1910,11 +1925,10 @@ async function loadData(){
     if(m&&typeof m.count==='number'&&!changed.some(x=>x[0]===op)) changed.push([op,m,opSig(m)]);
   }
   if(changed.length){
-    // 逐源即时渲染：每拉到一个源就刷新，用户尽早看到数据，不必等全部下完
+    // 合并渲染：9 个源并行到达，窗口内只重算/落盘一次，避免逐源全量计算拖慢首屏
     const label=cached?'更新中':'真实数据';
-    const n=await refreshOps(changed,()=>applyData(label));
-    if(n){writeCache();applyData(label);}
-    else if(!cached){showLoadError();return;}
+    const n=await refreshOps(changed,label);
+    if(!n&&!cached){showLoadError();return;}
   }else if(!cached){
     showLoadError();return;
   }
