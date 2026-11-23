@@ -1714,7 +1714,7 @@ function histKey(h){
 // 缓存改用 IndexedDB：全量数据约 127MB，localStorage 仅 5~10MB，根本写不进去，
 // 导致每次打开都要全量重下并长时间停在示例数据。IndexedDB 容量足、异步写不卡主线程。
 const CACHE_DB='tariff_cache_db', CACHE_STORE='kv', CACHE_KEY='meta';
-const CACHE_VER=7;            // 结构或逻辑变更时递增，自动作废旧缓存（v7 新增 4 个重点专项源）
+const CACHE_VER=8;            // 结构或逻辑变更时递增，自动作废旧缓存（v8 清空历史变化记录后作废旧缓存）
 const CACHE_TTL=12*3600*1000; // 12 小时
 let _cacheDb=null;
 const OPS=['mobile','telecom','unicom','gb','unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus'];
