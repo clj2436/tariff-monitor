@@ -1023,7 +1023,8 @@ function subSummaryText(){
   return parts.length?parts.join('　'):'未选择任何关注项';
 }
 /* 配置代理 Worker：页面不接触 PAT，只把「密码 + 配置」发给 Worker 校验后写入 GitHub */
-function workerUrl(){return (state.sub.workerUrl||'').trim().replace(/\/$/,'');}
+const BUILTIN_WORKER_URL='https://pz.zf.chenlijun.eu.org';  // 内置配置代理地址：留空即用，避免忘记/换设备后失效
+function workerUrl(){const u=(state.sub.workerUrl||'').trim().replace(/\/$/,'');return u||BUILTIN_WORKER_URL;}
 async function workerCall(payload){
   const base=workerUrl();
   if(!base) throw new Error('请先填写配置代理 Worker 地址');
@@ -1033,7 +1034,7 @@ async function workerCall(payload){
   try{
     res=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,password:state.sub.workerPwd}),signal:ctrl.signal});
   }catch(e){
-    if(e.name==='AbortError') throw new Error('连接 Worker 超时（15 秒）。若是 workers.dev 在国内无法访问，请给 Worker 绑定自定义域名（如 config.zf.chenlijun.eu.org），再把 Worker 地址改成该域名。');
+    if(e.name==='AbortError') throw new Error('连接 Worker 超时（15 秒）。默认走已绑定的自定义域名；若网络不通，可检查网络或在「高级」里换其他可用地址。');
     throw new Error('无法连接 Worker：'+e.message+'（检查地址是否正确、是否已部署）');
   }finally{clearTimeout(timer);}
   let j=null;try{j=await res.json();}catch(e){}
@@ -1275,8 +1276,8 @@ function renderSubscribe(){
         '<div class="sub-actions"><button type="button" class="btn on" id="subSaveBot">保存修改</button></div>'+
       '</div>'+
       '<details class="adv-box"><summary>高级 · 配置代理 Worker 地址（一般无需改动）</summary>'+
-        '<p class="sub-hint">页面不接触 GitHub PAT，读写都由你部署的 Worker 代劳。地址存本机。</p>'+
-        '<div class="sub-field"><label>Worker 地址（Cloudflare Workers）</label><input type="text" id="subWorkerUrl" placeholder="https://你的worker.workers.dev" autocomplete="off" value="'+escHtml(s.workerUrl||'')+'"></div>'+
+        '<p class="sub-hint">页面不接触 GitHub PAT，读写都由你部署的 Worker 代劳。<b>地址已内置，无需填写也不会忘记</b>；留空即用内置地址，只有需要改用其他 Worker 时才在此填写。</p>'+
+        '<div class="sub-field"><label>Worker 地址（已内置，一般无需填写）</label><input type="text" id="subWorkerUrl" placeholder="已内置默认地址，留空即使用；仅在改用其他 Worker 时填写" autocomplete="off" value=""></div>'+
       '</details>'+
       '<div class="sub-status" id="subStatus"></div>'+
     '</div>';
