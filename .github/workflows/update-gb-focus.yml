@@ -76,6 +76,12 @@ jobs:
             --input data/ops/gb-focus/current_changes.json \
             --out data/ops/gb-focus/report.html \
             --tag '★重点·广电'
+          STAMP=$(date -u +%Y%m%dT%H%M%S)
+          if [ -f data/ops/gb-focus/report.html ]; then
+            cp data/ops/gb-focus/report.html "data/ops/gb-focus/report-$STAMP.html"
+            echo "REPORT_STAMP=$STAMP" >> "$GITHUB_ENV"
+            echo "[报告] 已生成永久快照 report-$STAMP.html"
+          fi
 
       - name: 生成下架资费加密存档（永久累积，需密码解密）
         continue-on-error: true   # 存档失败不阻断主数据抓取
@@ -136,7 +142,11 @@ jobs:
           MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME || '资费监控' }}
           SITE_URL: ${{ vars.SITE_URL }}
         run: |
-          REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/gb-focus/report.html?v=2"
+          if [ -n "${REPORT_STAMP:-}" ]; then
+            REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/gb-focus/report-${REPORT_STAMP}.html?v=2"
+          else
+            REPORT_URL="${SITE_URL:-https://zf.chenlijun.eu.org}/data/ops/gb-focus/report.html?v=2"
+          fi
           echo "[报告] 报告页地址：$REPORT_URL"
           python3 scripts/notify_dingtalk.py \
             --force-rules 'gb:江西|吉林|贵州|四川|山西' \
