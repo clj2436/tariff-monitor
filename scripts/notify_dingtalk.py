@@ -665,6 +665,8 @@ def main():
                     help="消息来源标注，如「移动·片0」")
     ap.add_argument("--report-out", default="",
                     help="本轮全部变化的自包含 HTML 报告输出路径（如 data/ops/mobile/report.html），消息附直达链接")
+    ap.add_argument("--report-url", default=os.environ.get("REPORT_URL", ""),
+                    help="报告页已上线的完整 URL（workflow 在生成+提交+清缓存后传入）。传入后消息直接引用，不再本地生成，避免链接 404")
     ap.add_argument("--bot", default=os.environ.get("NOTIFY_BOT", ""), choices=["", "focus", "other"],
                     help="钉钉机器人路线：focus=★重点、other=其他省份；留空用通用机器人")
     ap.add_argument("--dry-run", action="store_true", help="只打印消息，不发送")
@@ -771,8 +773,8 @@ def main():
     site_url = (cfg.get("site_url") if cfg and cfg.get("site_url") else "") or os.environ.get("SITE_URL", "")
 
     # 本轮全部变化写成自包含 HTML 报告，消息附直达链接（页面受长度限制只列前 N 条）
-    report_url = ""
-    if args.report_out:
+    report_url = (args.report_url or "").strip()
+    if not report_url and args.report_out:
         try:
             from build_report import write_report
             report_path, _ = write_report(hit, args.report_out, args.tag)
