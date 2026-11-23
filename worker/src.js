@@ -368,22 +368,28 @@ async function handle(request, env) {
   } catch (e) { return json({ ok: false, error: '请求体不是合法 JSON' }, 400, cors); }
   if (!input || typeof input !== 'object') return json({ ok: false, error: '请求体格式错误' }, 400, cors);
 
-  // 密码校验：Worker 端 secrets，前端无法绕过
-  if (!env.SITE_PASSWORD || !env.GITHUB_PAT || !env.REPO) {
-    return json({ ok: false, error: 'Worker 未配置完整（需 SITE_PASSWORD / GITHUB_PAT / REPO）' }, 500, cors);
+  if (!env.GITHUB_PAT || !env.REPO) {
+    return json({ ok: false, error: 'Worker 未配置完整（需 GITHUB_PAT / REPO）' }, 500, cors);
   }
-  const gsec = globalLockSeconds(Date.now());
-  if (gsec) return json({ ok: false, error: '失败请求过多，请 ' + gsec + ' 秒后重试' },
-                        429, Object.assign({}, cors, { 'Retry-After': String(gsec) }));
-  const denied = await checkPassword(request, env, input.password, cors);
-  if (denied) return denied;
 
+  // read 免密码：只返回配置元数据（密钥仅尾号，无明文），便于公开查看机器人状态。
+  // 写操作（保存修改）仍需密码，安全边界不变。
   if (input.action === 'read') {
     let config;
     try { config = await readConfig(env.REPO, env.GITHUB_PAT, env); }
     catch (e) { return json({ ok: false, error: '读取配置失败：' + e.message }, 500, cors); }
     return json({ ok: true, config }, 200, cors);
   }
+
+  // 密码校验：Worker 端 secrets，前端无法绕过（仅写操作）
+  if (!env.SITE_PASSWORD) {
+    return json({ ok: false, error: 'Worker 未配置完整（需 SITE_PASSWORD）' }, 500, cors);
+  }
+  const gsec = globalLockSeconds(Date.now());
+  if (gsec) return json({ ok: false, error: '失败请求过多，请 ' + gsec + ' 秒后重试' },
+                        429, Object.assign({}, cors, { 'Retry-After': String(gsec) }));
+  const denied = await checkPassword(request, env, input.password, cors);
+  if (denied) return denied;
 
   let job;
   try { job = sanitize(input); } catch (e) { return json({ ok: false, error: e.message }, 400, cors); }
