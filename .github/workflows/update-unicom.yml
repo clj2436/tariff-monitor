@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '5 0,8,16 * * *'   # 北京时间 00:05 / 08:05 / 16:05
   workflow_dispatch:          # 手动触发
+    inputs:
+      rebuild:
+        description: '重建基线：跳过采样护栏，补漏数据直接落盘、不记变化、不刷钉钉'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -93,10 +98,12 @@ jobs:
           # 这 15 省此前因单 job 预算耗尽从未抓到，属于「新纳入」而非真实新上架。
           BASELINE_PROVINCES: '湖北,湖南,广东,广西,海南,重庆,四川,贵州,云南,西藏,陕西,甘肃,青海,宁夏,新疆'
         run: |
+          REBUILD_FLAG=""
+          if [ "${{ inputs.rebuild }}" = "true" ]; then REBUILD_FLAG="--rebuild"; fi
           python3 scripts/build_data.py --carriers unicom \
             --merge-from /tmp/unicom-shards \
             --out data/ops/unicom \
-            --baseline-if-empty \
+            --baseline-if-empty $REBUILD_FLAG \
             --baseline-provinces '湖北,湖南,广东,广西,海南,重庆,四川,贵州,云南,西藏,陕西,甘肃,青海,宁夏,新疆'
 
       - name: 校验本家数据

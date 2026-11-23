@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '15 0,4,8,12,16,20 * * *'   # 北京时间 00:15 起每 4 小时一次（00/04/08/12/16/20），与全量错峰 10 分钟
   workflow_dispatch:            # 手动触发
+    inputs:
+      rebuild:
+        description: '重建基线：跳过采样护栏，补漏数据直接落盘、不记变化、不刷钉钉'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,9 +49,11 @@ jobs:
           UNICOM_PASSES: ${{ vars.UNICOM_SICHUAN_PASSES || '16' }}
           GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '40' }}
         run: |
+          REBUILD_FLAG=""
+          if [ "${{ inputs.rebuild }}" = "true" ]; then REBUILD_FLAG="--rebuild"; fi
           python3 scripts/build_data.py \
             --carriers unicom --sections sichuan \
-            --out data/ops/unicom-sichuan --baseline-if-empty
+            --out data/ops/unicom-sichuan --baseline-if-empty $REBUILD_FLAG
 
       - name: 校验专项数据
         run: |
