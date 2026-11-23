@@ -23,20 +23,22 @@ import os
 from datetime import datetime, timezone
 
 MAGIC = b"ARC1"
+MAGIC_GZ = b"ARC2"          # 明文先 gzip 再加密（详情字段多、体积大时用）
 PBKDF2_ITERS = 200_000
 SALT_LEN = 16
 IV_LEN = 12
 TAG_LEN = 16
 VAULT_VERSION = 1
 
-# 在售资费只存精简索引（线上 items.json 已有完整数据，无需重复）。
+# 存档即「永久留存的完整副本」：所有资费（含在售）都保存全部公示字段，
+# 这样档案页的详情丰富度与主站一致，且某天下架后无需依赖线上 items.json。
 KEEP_FIELDS = (
     "id", "name", "code", "op", "type", "owner", "province",
-    "price", "data", "voice", "broadband", "date",
+    "price", "data", "voice", "broadband", "date", "source",
 )
-# 已下架资费才额外保留的完整字段（这是要永久留存的「副本」）。
+# 完整详情字段（说明、公示专区 details 等）——对在售与下架一视同仁地保留。
 FULL_FIELDS = (
-    "note", "note_full", "scope", "region", "channel", "source",
+    "note", "note_full", "scope", "region", "channel",
 )
 
 
@@ -50,29 +52,40 @@ def _derive_key(password: str, salt: bytes) -> bytes:
     )
 
 
-def encrypt(plain: bytes, password: str) -> bytes:
+def encrypt(plain: bytes, password: str, compress: bool = True) -> bytes:
+    """加密。compress=True 时先 gzip 明文（ARC2 格式），大幅压缩重复的 JSON 文本。"""
+    import gzip as _gzip
     from Crypto.Cipher import AES
     from Crypto.Random import get_random_bytes
+    magic = MAGIC_GZ if compress else MAGIC
+    if compress:
+        plain = _gzip.compress(plain, compresslevel=9)
     salt = get_random_bytes(SALT_LEN)
     iv = get_random_bytes(IV_LEN)
     key = _derive_key(password, salt)
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv, mac_len=TAG_LEN)
     ct, tag = cipher.encrypt_and_digest(plain)
-    return MAGIC + salt + iv + tag + ct
+    return magic + salt + iv + tag + ct
 
 
 def decrypt(blob: bytes, password: str) -> bytes:
+    import gzip as _gzip
     from Crypto.Cipher import AES
-    if not blob.startswith(MAGIC):
-        raise ValueError("存档文件格式不正确（缺少 ARC1 头）")
-    off = len(MAGIC)
+    magic = blob[:4]
+    if magic == MAGIC_GZ:
+        off = 4; compressed = True
+    elif magic == MAGIC:
+        off = 4; compressed = False
+    else:
+        raise ValueError("存档文件格式不正确（缺少 ARC1/ARC2 头）")
     salt = blob[off:off + SALT_LEN]; off += SALT_LEN
     iv = blob[off:off + IV_LEN]; off += IV_LEN
     tag = blob[off:off + TAG_LEN]; off += TAG_LEN
     ct = blob[off:]
     key = _derive_key(password, salt)
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv, mac_len=TAG_LEN)
-    return cipher.decrypt_and_verify(ct, tag)  # 密码错误会抛 ValueError
+    plain = cipher.decrypt_and_verify(ct, tag)  # 密码错误会抛 ValueError
+    return _gzip.decompress(plain) if compressed else plain
 
 
 def read_vault(path: str, password: str) -> dict:
@@ -108,18 +121,21 @@ def new_vault(op: str) -> dict:
 
 
 def _slim_item(d: dict, offline: bool = False) -> dict:
-    """在售只存精简索引；offline=True（已下架）才保留完整副本含 details。"""
-    fields = KEEP_FIELDS + (FULL_FIELDS if offline else ())
+    """所有资费都保留完整副本（含 details/note_full），与主站详情一致。
+
+    offline 参数保留仅为兼容旧调用签名；现在在售与下架都存同样的完整字段，
+    确保档案页任意记录点开都有与官网公示专区一致的丰富详情。
+    """
+    fields = KEEP_FIELDS + FULL_FIELDS
     out = {}
     for k in fields:
         if k in d and d[k] not in (None, "", [], {}):
             out[k] = d[k]
-    if offline:
-        det = d.get("details")
-        if isinstance(det, dict):
-            det2 = {k: v for k, v in det.items() if v not in (None, "", [], {})}
-            if det2:
-                out["details"] = det2
+    det = d.get("details")
+    if isinstance(det, dict):
+        det2 = {k: v for k, v in det.items() if v not in (None, "", [], {})}
+        if det2:
+            out["details"] = det2
     return out
 
 
