@@ -169,3 +169,12 @@ jobs:
               sleep 3
             done
           fi
+
+      - name: 清除该源 CDN 缓存
+        continue-on-error: true     # 清缓存失败不阻断数据提交
+        env:
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          python3 scripts/purge_cdn.py --op mobile
