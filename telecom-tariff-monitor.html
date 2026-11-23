@@ -1122,23 +1122,17 @@ async function saveBotConfig(){
   finally{btn.disabled=false;btn.textContent='保存修改';}
 }
 /* 实时配置状态：经 Worker 读 GitHub Secrets 元数据（进订阅页即自动刷新） */
-let _rtAt=0,_rtBusy=false;
+let _rtAt=0,_rtBusy=false,_rtHtml='',_rtDotCls='',_rtTimeTxt='';  // 缓存渲染结果，避免重渲染时清空状态
 async function loadRealtimeStatus(force){
   const body=$('rtBody');if(!body)return;
   if(!force&&_rtAt&&Date.now()-_rtAt<15000) return; // 勾选省份会频繁重渲染，15 秒内不重复打 Worker
   if(_rtBusy) return;
   const s=state.sub;
-  const setDot=(cls)=>{const d=$('rtDot');if(d)d.className='rt-dot'+(cls?' '+cls:'');};
-  const setTime=(t)=>{const e=$('rtTime');if(e)e.textContent=t;};
+  const setDot=(cls)=>{_rtDotCls=cls||'';const d=$('rtDot');if(d)d.className='rt-dot'+(_rtDotCls?' '+_rtDotCls:'');};
+  const setTime=(t)=>{_rtTimeTxt=t;const e=$('rtTime');if(e)e.textContent=t;};
   if(!workerUrl()){
     setDot('err');setTime('未配置 Worker');
-    body.innerHTML='<div class="muted" style="font-size:11.5px">请先在③「高级 · 配置代理 Worker 地址」里填写 Worker 地址。</div>';
-    return;
-  }
-  if(!s.workerPwd){
-    setDot('err');setTime('等待密码');
-    const u=$('rtUnlock');if(u)u.style.display='';
-    body.innerHTML='<div class="muted" style="font-size:11.5px">输入配置密码后自动实时读取（密码只存本标签页会话，关闭即清除）。</div>';
+    body.innerHTML='<div class="muted" style="font-size:11.5px">Worker 地址未就绪，请刷新页面重试。</div>';
     return;
   }
   _rtBusy=true;
@@ -1152,16 +1146,15 @@ async function loadRealtimeStatus(force){
     const f=pick(focus),o=pick(other);
     const cell=(name,b)=>'<div class="rt-row"><div class="rt-name">'+name+'</div><div class="rt-val '+(b?'on':'off')+'">'+
       (b?('已配置'+(b.tail?' ···'+b.tail:'')):'未配置')+'</div></div>';
-    body.innerHTML='<div class="rt-rows">'+cell('★重点运营商',f)+cell('非重点运营商',o)+'</div>'+
+    _rtHtml='<div class="rt-rows">'+cell('★重点运营商',f)+cell('非重点运营商',o)+'</div>'+
       '<div class="muted" style="font-size:10.5px;margin-top:7px">直接读取 GitHub Secrets 元数据 · 密钥仅显示尾号，无法回读原文</div>';
+    body.innerHTML=_rtHtml;
     setDot('live');setTime('实时 · '+new Date().toLocaleTimeString('zh-CN',{hour12:false}));
     _rtAt=Date.now();
-    const u=$('rtUnlock');if(u)u.style.display='none';
   }catch(e){
     setDot('err');setTime('读取失败');
-    body.innerHTML='<div class="muted" style="font-size:11.5px;color:var(--warn)">实时读取失败：'+escHtml(e.message)+
-      '　可点下方重新输入密码。</div>';
-    const u=$('rtUnlock');if(u){u.style.display='';if($('rtPwd'))$('rtPwd').value=s.workerPwd||'';}
+    _rtHtml='<div class="muted" style="font-size:11.5px;color:var(--warn)">实时读取失败：'+escHtml(e.message)+'</div>';
+    body.innerHTML=_rtHtml;
   }finally{_rtBusy=false;}
 }
 /* 机器人状态：汇总 9 个源上报的 push_status.json + GitHub Actions 最近运行 */
@@ -1238,20 +1231,20 @@ function renderSubscribe(){
     '<div class="card sub-sec">'+
       '<h4>② 钉钉机器人状态</h4>'+
       '<div class="rt-card" id="rtCard">'+
-        '<div class="rt-head"><span class="rt-title"><span class="rt-dot" id="rtDot"></span>实时配置状态</span>'+
-        '<span class="muted" id="rtTime" style="font-size:11px">未检测</span></div>'+
-        '<div id="rtUnlock" class="rt-unlock" style="display:none">'+
-          '<input type="password" id="rtPwd" placeholder="输入配置密码（与 Worker 的 SITE_PASSWORD 一致）" autocomplete="off">'+
-          '<button type="button" class="btn on" id="rtGo">检测</button>'+
-        '</div>'+
-        '<div id="rtBody"><div class="muted" style="font-size:11.5px">正在读取实时配置…</div></div>'+
+        '<div class="rt-head"><span class="rt-title"><span class="rt-dot'+(_rtDotCls?' '+_rtDotCls:'')+'" id="rtDot"></span>实时配置状态</span>'+
+        '<span class="muted" id="rtTime" style="font-size:11px">'+(_rtTimeTxt||'未检测')+'</span></div>'+
+        '<div id="rtBody">'+(_rtHtml||'<div class="muted" style="font-size:11.5px">正在读取实时配置…</div>')+'</div>'+
       '</div>'+
-      '<p class="sub-hint">上方「实时配置」通过 Worker 直接读取 GitHub Secrets 的<b>当前</b>配置状态（进此页自动刷新，密钥只显示尾号）。下方是各路推送的历史记录与 GitHub 任务运行情况。</p>'+
+      '<p class="sub-hint">上方「实时配置」通过 Worker 直接读取 GitHub Secrets 的<b>当前</b>配置状态（免密码、进此页自动刷新，密钥只显示尾号）。下方是各路推送的历史记录与 GitHub 任务运行情况。</p>'+
       '<div class="bot-status" id="botStatus"><div class="muted">正在读取机器人状态…</div></div>'+
     '</div>'+
     '<div class="card sub-sec">'+
       '<h4>③ 机器人配置</h4>'+
       '<p class="sub-hint">输入配置密码点「读取配置」，即可查看当前设置并直接修改。<b>密钥无法回读原文</b>，只显示「已配置」与尾号；留空表示不改动。</p>'+
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 11px;margin:2px 0 10px;font-size:11.5px;color:var(--muted);background:var(--card2);border:1px solid var(--border);border-radius:8px">'+
+        '<span style="color:var(--blue);font-weight:600">● 配置代理已就绪</span>'+
+        '<span>Worker 地址已内置（此处不展示），无需填写即可读取／保存配置。</span>'+
+      '</div>'+
       '<div class="unlock-bar">'+
         '<input type="password" id="subWorkerPwd" placeholder="配置密码（与 Worker 的 SITE_PASSWORD 一致）" autocomplete="off">'+
         '<button type="button" class="btn on" id="subReadCfg">读取配置</button>'+
@@ -1314,14 +1307,9 @@ function renderSubscribe(){
   });
   if($('subMax')) $('subMax').addEventListener('input',e=>{s.maxItems=Math.max(1,Number(e.target.value)||30);localStorage.setItem('tariff_max_items',String(s.maxItems));});
   if($('subWorkerUrl')) $('subWorkerUrl').addEventListener('input',e=>{s.workerUrl=e.target.value;localStorage.setItem('tariff_worker_url',e.target.value);});
-  // ③ 与 ② 两处密码框共用 state.sub.workerPwd，并同步写入 sessionStorage（刷新不丢、关标签页即清）
-  const syncPwd=v=>{s.workerPwd=v;sessionStorage.setItem('tariff_rt_pwd',v);
-    if($('rtPwd')&&$('rtPwd').value!==v) $('rtPwd').value=v;
-    if($('subWorkerPwd')&&$('subWorkerPwd').value!==v) $('subWorkerPwd').value=v;};
+  // ③ 配置密码框：存 sessionStorage（刷新不丢、关标签页即清）。② 实时状态已免密，不再需要密码框。
+  const syncPwd=v=>{s.workerPwd=v;sessionStorage.setItem('tariff_rt_pwd',v);};
   if($('subWorkerPwd')) $('subWorkerPwd').addEventListener('input',e=>syncPwd(e.target.value));
-  if($('rtPwd')){$('rtPwd').value=s.workerPwd||'';$('rtPwd').addEventListener('input',e=>syncPwd(e.target.value));}
-  if($('rtGo')) $('rtGo').addEventListener('click',()=>loadRealtimeStatus(true));
-  if($('rtPwd')) $('rtPwd').addEventListener('keydown',e=>{if(e.key==='Enter')loadRealtimeStatus(true);});
   if($('subReadCfg')) $('subReadCfg').addEventListener('click',readBotConfig);
   if($('subSaveBot')) $('subSaveBot').addEventListener('click',saveBotConfig);
   loadPushStatus();
