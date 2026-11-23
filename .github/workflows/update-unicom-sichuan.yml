@@ -101,7 +101,6 @@ jobs:
             --report-out data/ops/unicom-sichuan/report.html \
             --state data/ops/unicom-sichuan/.notify_state.json \
             --bot focus \
-
             --tag '★重点·联通四川'
 
       - name: 提交专项数据

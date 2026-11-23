@@ -107,7 +107,6 @@ jobs:
             --report-out data/ops/unicom-focus/report.html \
             --state data/ops/unicom-focus/.notify_state.json \
             --bot focus \
-
             --tag '★重点·联通'
 
       - name: 提交专项数据

@@ -154,7 +154,6 @@ jobs:
             --report-out data/ops/unicom/report.html \
             --state data/ops/unicom/.notify_state.json \
             --bot other \
-
             --tag '其他·联通'
 
       - name: 提交本家数据
