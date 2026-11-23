@@ -1608,7 +1608,7 @@ $('reloadBtn').addEventListener('click',async()=>{
   if(opTimer){clearInterval(opTimer);opTimer=null;} // 停止旧轮询，加载完成后重建
   try{
     const changed=await probeOps(true);
-    const n=await refreshOps(changed,()=>applyData('真实数据'));
+    const n=await refreshOps(changed,'真实数据'); // onEach 传 label 字符串，与 refreshOps 约定一致
     if(n){writeCache();applyData('真实数据');toast('已重新拉取全部数据');}
     else{toast('线上数据暂时无法加载，请稍后重试');}
   }catch(e){toast('刷新失败：'+e.message);}
@@ -1712,7 +1712,7 @@ function histKey(h){
 // 缓存改用 IndexedDB：全量数据约 130MB，localStorage 仅 5~10MB，根本写不进去，
 // 导致每次打开都要全量重下。IndexedDB 容量足、异步写不卡主线程；写入合并见 scheduleCache。
 const CACHE_DB='tariff_cache_db', CACHE_STORE='kv', CACHE_KEY='meta';
-const CACHE_VER=10;           // 结构或逻辑变更时递增，自动作废旧缓存（v10：移除冗余 note 字段 + 搜索索引改为懒计算，内存减约 1/3）
+const CACHE_VER=11;           // 结构或逻辑变更时递增，自动作废旧缓存（v11：修复部分源加载时统计显示 0 的缓存/渲染问题）
 const CACHE_TTL=12*3600*1000; // 12 小时
 let _cacheDb=null;
 const OPS=['mobile','telecom','unicom','gb','unicom-sichuan','mobile-focus','telecom-focus','unicom-focus','gb-focus'];
@@ -1757,6 +1757,10 @@ async function readCache(){
     if(!c||c.v!==CACHE_VER||!c.ops||typeof c.ops!=='object') return null;
     if(!c.savedAt||Date.now()-c.savedAt>CACHE_TTL) return null;
     if(!OPS.every(op=>c.ops[op]&&Array.isArray(c.ops[op].items))) return null;
+    // 防御：历史上曾把 items 清空成 [] 并写进缓存，导致页面秒显「0 条」且
+    // 签名未变时永远不重新拉取。空快照必须作废，强制回到线上重新拉全量。
+    const total=OPS.reduce((s,op)=>s+(c.ops[op].items||[]).length,0);
+    if(total===0) return null;
     return c.ops;
   }catch(e){return null;}
 }
@@ -1932,8 +1936,16 @@ async function loadData(){
   }else if(!cached){
     showLoadError();return;
   }
+  // 兜底：若合并后仍一条数据都没有（脏缓存 / 部分源失败），强制全量重拉一次，绝不把 0 条当正常结果展示。
+  if(!DATA.length){
+    try{
+      const force=await probeOps(true);
+      if(force.length){await refreshOps(force,'真实数据');}
+    }catch(e){}
+    if(!DATA.length && !cached){showLoadError();return;}
+  }
   // 有缓存但本轮全部探测失败：保留缓存数据，但明确标注"离线快照"，不谎称最新
-  if(cached&&!changed.length){
+  if(cached&&!changed.length&&DATA.length){
     const tag=$('dataTag');tag.textContent='离线缓存';tag.style.background='#fef3c7';tag.style.color='#92400e';
   }
   startPolling();
