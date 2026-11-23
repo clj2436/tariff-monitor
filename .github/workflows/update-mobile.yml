@@ -129,6 +129,18 @@ jobs:
             --out data/ops/mobile/report.html \
             --tag '其他·移动'
 
+      - name: 生成下架资费加密存档（永久累积，需密码解密）
+        continue-on-error: true   # 存档失败不阻断主数据抓取
+        env:
+          ARCHIVE_PASSWORD: ${{ secrets.ARCHIVE_PASSWORD }}
+        run: |
+          python3 scripts/build_archive.py \
+            --op mobile \
+            --items data/ops/mobile/items.json \
+            --changes data/ops/mobile/current_changes.json \
+            --out data/ops/mobile/archive.bin
+          # 密码未配置时脚本会跳过，不影响其余步骤
+
       - name: 提交本家数据
         run: |
           git config user.name "github-actions[bot]"
