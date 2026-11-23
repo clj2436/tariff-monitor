@@ -40,6 +40,8 @@ button{cursor:pointer}
 .nav-btn{border:0;background:transparent;color:var(--muted);padding:11px 17px;font-size:13.5px;font-weight:600;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
 .nav-btn:hover{color:var(--text)}
 .nav-btn.on{color:var(--blue);border-bottom-color:var(--blue)}
+.nav-ext{margin-left:auto;text-decoration:none;color:var(--warn);border-bottom:2px solid transparent}
+.nav-ext:hover{color:var(--warn);border-bottom-color:var(--warn)}
 
 /* 通用卡片 */
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
@@ -558,7 +560,8 @@ function applyTheme(){document.body.classList.toggle('dark',state.dark);$('theme
 
 /* ---------- 导航 ---------- */
 const TABS=[['overview','数据总览'],['national','全国资费'],['province','省份资费'],['search','字段检索'],['history','变化历史'],['subscribe','订阅推送'],['about','关于本页']];
-function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-btn'+(state.tab===k?' on':'')+'" data-tab="'+k+'">'+l+'</button>').join('');
+function renderNav(){$('nav').innerHTML=TABS.map(([k,l])=>'<button class="nav-btn'+(state.tab===k?' on':'')+'" data-tab="'+k+'">'+l+'</button>').join('')+
+  '<a class="nav-btn nav-ext" href="archive.html" title="已下架资费的永久加密档案（需密码）">永久档案 ↗</a>';
   $('nav').querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;state.page=1;saveSel();renderNav();render();}));}
 
 /* ---------- 数据查询 ---------- */
@@ -1349,6 +1352,7 @@ function renderAbout(){
     '<h3>变动提醒</h3><p>在「订阅推送」页勾选关注的运营商与省份（可多选、跨运营商）；机器人配置在 ③ 输入密码点「读取配置」即可查看当前设置并直接修改、保存。GitHub PAT 与密码都只存在你部署的 Worker 服务端，页面不接触 PAT。推送分两路、各用一个钉钉群机器人：<b>★重点</b>写入 <code>DINGTALK_WEBHOOK_FOCUS</code>/<code>DINGTALK_SECRET_FOCUS</code>，<b>其他·X</b>写入 <code>DINGTALK_WEBHOOK_OTHER</code>/<code>DINGTALK_SECRET_OTHER</code>；也可只填通用 <code>DINGTALK_WEBHOOK</code>/<code>DINGTALK_SECRET</code> 让两路共用一群。命中新增、修改或下架时自动推送；遇钉钉限流会自动退避重试，相同变更不重复推送。</p>'+
     '<h3>数据口径</h3><p>以官网「适用地区」「适用范围」字段为准，仅供参考。分类维度为 <code>套餐 / 加装包 / 营销活动</code> × <code>个人 / 政企</code>。</p>'+
     '<h3>功能</h3><p>省份切换与搜索、六类筛选、按价格 / 最新排序、字段级检索、CSV 导出、收藏关注（保存在本机浏览器）、变化历史追踪、钉钉订阅推送配置、深色模式。</p>'+
+    '<h3>永久档案</h3><p>顶部导航的「永久档案 ↗」是加密存档检索页：所有出现过的资费永久留存，<b>已下架资费保存完整副本及其全部变化记录</b>，数据以密码加密存储、在浏览器本地解密，密码不上传服务器。需访问密码方可查看（密码即密钥，遗失无法恢复）。</p>'+
     '<h3>免责声明</h3><p>展示内容可能存在延迟或误差，办理业务请以营业厅 / 官方客服热线信息为准。</p>'+
     '</div></div>';
   const meta=window.__meta;
