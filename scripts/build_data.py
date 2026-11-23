@@ -433,6 +433,40 @@ def diff_rows(prev, cur):
     return changes
 
 
+def confirm_offlines(rows, changes, path, skip=False):
+    """连续两轮确认下架：根治抓取抖动造成的「假下架 → 下轮假新增」循环。
+
+    运营商接口单轮可能漏抓部分条目，若按单轮缺失就判下架并从快照删除，下一轮
+    条目又出现时会被判成「新增」，形成下架↔新增抖动刷屏。这里把「本轮首次缺失」
+    的条目暂留在 items.json（rows 原地追加），只记入 path 观察名单、不下发变化；
+    只有连续两轮（上一轮也在观察名单里）缺失才确认为真下架并写入变化。
+
+    - rows：本轮最终资费列表（会被原地追加暂留条目）
+    - changes：diff_rows 的原始变化
+    - path：观察名单文件（存上轮「下架候选」的 stable_key 列表）
+    - skip：基线/降级熔断轮不确认，清空观察名单
+    返回过滤后的变化列表。
+    """
+    prev_pending = set(load_json(path) or [])
+    off = [c for c in changes if c.get("kind") == "下架"]
+    off_keys = {stable_key(c) for c in off}
+    if skip:
+        save_json(path, [])
+        return changes
+    confirmed_keys = off_keys & prev_pending          # 连续两轮缺失 → 确认
+    unconfirmed = [c for c in off if stable_key(c) not in confirmed_keys]
+    # 首次缺失：暂留在快照，避免下一轮被判成新增
+    for c in unconfirmed:
+        rows.append({k: v for k, v in c.items() if k not in ("kind", "date", "old")})
+    save_json(path, sorted(off_keys))
+    if unconfirmed:
+        print("[下架观察] %d 条本轮首次缺失，暂留快照观察一轮（不下发）" % len(unconfirmed))
+    if confirmed_keys:
+        print("[下架确认] %d 条连续两轮缺失，确认下架" % len(confirmed_keys))
+    return [c for c in changes
+            if not (c.get("kind") == "下架" and stable_key(c) not in confirmed_keys)]
+
+
 def load_json(path):
     if not os.path.exists(path):
         return None
@@ -521,18 +555,21 @@ def main():
     def block_key(d):
         return (d.get("op"), d.get("province") or "全国")
 
-    # 板块数量骤降保护：源站偶发降级时某板块只回极少条（如山东 1000→40），
-    # 若照常整批替换会把存量冲掉、页面显示"资费偏少"。本轮条数 < 上轮×40%
-    # 且上轮该板块 ≥20 条时判定降级，保留上轮整批数据。
-    # 仅 --merge-from（分片）模式启用：此时各板块数据完整可比，避免单源抓取模式误判。
+    # 板块数量骤降保护：源站偶发降级时某板块只回极少条（如吉林 963→444），
+    # 若照常整批替换会把存量冲掉，并把缺失条目误报成整批「下架」、下一轮又误报
+    # 成整批「新增」，形成下架↔新增抖动刷屏。本轮条数 < 上轮×阈值 且上轮该
+    # 板块 ≥20 条时判定降级，保留上轮整批数据。
+    # 所有模式启用（含专项源 --sections 直接抓取）：按 (运营商,省份) 板块比较，
+    # 各模式板块数据都完整可比，保护本身只会保留旧数据、不会误伤真实新增。
+    DEGRADE_RATIO = float(os.getenv("DEGRADE_RATIO") or "0.8")
     degraded_blocks = set()
-    if args.merge_from and prev_rows:
+    if prev_rows:
         from collections import Counter as _Counter
         prev_cnt = _Counter(block_key(d) for d in prev_rows)
         fresh_cnt = _Counter(block_key(d) for d in rows)
         for bk, pc in prev_cnt.items():
             fc = fresh_cnt.get(bk, 0)
-            if pc >= 20 and fc < pc * 0.4:
+            if pc >= 20 and fc < pc * DEGRADE_RATIO:
                 degraded_blocks.add(bk)
         if degraded_blocks:
             print("[骤降保护] 以下板块本轮条数远低于上轮，保留上轮数据：" +
@@ -547,7 +584,26 @@ def main():
         seen[stable_key(d) + "|" + str(d.get("name", ""))] = d
     rows = list(seen.values())
 
-    if args.rebuild or (args.baseline_if_empty and not prev_rows):
+    # 整轮"变化洪水"熔断：若本轮变化数相对存量异常高，说明是抓取覆盖抖动而非
+    # 真实资费变更（真实资费每天只会零星上下架）。宁可本轮漏记，也不能把整批
+    # 假下架/假新增推到钉钉和变化历史里刷屏。下一轮基线正常后会照常记录变化。
+    # 可通过环境变量调整；设为 0 关闭熔断。
+    FLOOD_RATIO = float(os.getenv("CHANGE_FLOOD_RATIO") or "0.15")
+    FLOOD_MIN = int(os.getenv("CHANGE_FLOOD_MIN") or "60")
+    flood_skip = False
+    if prev_rows and FLOOD_RATIO > 0 and not args.rebuild:
+        _probe = diff_rows(prev_rows, rows)
+        _off = sum(1 for c in _probe if c.get("kind") == "下架")
+        _new = sum(1 for c in _probe if c.get("kind") == "新增")
+        _base = max(1, len(prev_rows))
+        if (_off >= FLOOD_MIN and _off / _base > FLOOD_RATIO) or \
+           (_new >= FLOOD_MIN and _new / _base > FLOOD_RATIO):
+            print("[洪水熔断] 本轮下架 %d / 新增 %d 相对存量 %d 条异常，判定抓取抖动，"
+                  "本轮只落库不记变化" % (_off, _new, len(prev_rows)))
+            flood_skip = True
+        del _probe
+
+    if args.rebuild or (args.baseline_if_empty and not prev_rows) or flood_skip:
         changes = []
         if args.baseline_if_empty and not prev_rows:
             print("[基线] 本源首次运行，只建基线不记变化，避免整批误报为新上架")
@@ -568,6 +624,12 @@ def main():
                            if not (c.get("kind") == "新增" and c.get("province") in first_time)]
                 print("[基线省份] %s：剔除 %d 条首轮新增（数据已落盘，不计变化；后续新增正常推送）"
                       % ("、".join(sorted(first_time)), before - len(changes)))
+    # 连续两轮确认下架：本轮首次缺失的条目暂留快照，避免下轮误判为新增。
+    # 基线轮/洪水熔断轮不确认，只清空观察名单（这些轮的数据本身不可信）。
+    pending_path = os.path.join(args.out, "pending_off.json")
+    changes = confirm_offlines(rows, changes, pending_path,
+                               skip=bool(args.rebuild or flood_skip))
+
     hist = (prev_hist + changes)[-150:]
 
     ops_present = sorted({d.get("op") for d in rows if d.get("op")})
