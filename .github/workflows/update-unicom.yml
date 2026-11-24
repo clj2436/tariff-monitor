@@ -53,6 +53,9 @@ jobs:
           FETCH_WORKERS: ${{ vars.FETCH_WORKERS || '3' }}
           UNICOM_TIME_BUDGET: ${{ vars.UNICOM_TIME_BUDGET || '120' }}
           GLOBAL_TIME_BUDGET_MIN: ${{ vars.GLOBAL_TIME_BUDGET_MIN || '60' }}
+          # 老接口随机采样轮数：设 repo Variable UNICOM_PASSES=0 可仅关闭老随机路径，
+          # 保留官网分类遍历+费用分段（全量、稳定），用于验证老路径是否为独家数据来源。
+          UNICOM_PASSES: ${{ vars.UNICOM_PASSES || '12' }}
         run: |
           mkdir -p /tmp/unicom-shards
           python3 scripts/build_data.py --carriers unicom \
