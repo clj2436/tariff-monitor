@@ -79,7 +79,7 @@ const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;
 let kind='',zeroOnly=false;
 function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
-  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-25 13:51（北京时间）';
+  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-25 18:00（北京时间）';
 }
 function pubTable(rows){return rows&&rows.length?'<table class="pub-table">'+rows.map(r=>'<tr><td class="k">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'<div class="nodiff">无</div>';}
 function pubList(rows){return rows&&rows.length?'<ul class="pub-list">'+rows.map(r=>'<li><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</li>').join('')+'</ul>':'<div class="nodiff">无</div>';}
