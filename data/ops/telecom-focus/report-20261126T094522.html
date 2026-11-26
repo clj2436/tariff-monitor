@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>本轮资费变动 · 全部明细 · ★重点·电信</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--card2:#fafbfc;--ink:#1f2937;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--border:#e5e7eb;--blue:#2563eb;--blue-soft:#eff6ff;--red:#dc2626;--green:#059669;--down:#0f9d6e;--warn:#b45309}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:800px;margin:0 auto;padding:20px 16px}
+h1{font-size:19px;margin:0 0 3px;font-weight:700}
+.sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.sub b{color:var(--ink)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.bar input{flex:1;min-width:150px;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;background:var(--card);color:var(--ink)}
+.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:3px}
+.tab{border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.tab.on{background:var(--blue);color:#fff}
+.zbtn{border:1px solid var(--line);background:var(--card);color:var(--muted);padding:6px 11px;border-radius:9px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.zbtn:hover{border-color:var(--blue);color:var(--blue)}.zbtn.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+.price{font-weight:750;font-size:13.5px;font-variant-numeric:tabular-nums}.price.zero{color:var(--down)}
+.cnt{color:var(--muted);font-size:12px;margin:0 0 10px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:7px;overflow:hidden}
+.row{padding:11px 14px;cursor:pointer;display:flex;gap:9px;align-items:flex-start}
+.row:hover{background:#f9fafb}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;margin-top:1px}
+.b-new{background:#dcfce7;color:var(--green)}.b-mod{background:#dbeafe;color:var(--blue)}.b-off{background:#fee2e2;color:var(--red)}
+.main{flex:1;min-width:0}
+.title{font-weight:600;font-size:14px;word-break:break-word}
+.meta{color:var(--muted);font-size:11.5px;margin-top:2px}
+.summary{color:#374151;font-size:12.5px;margin-top:4px;word-break:break-word}
+.arw{color:var(--muted);font-size:11px;transition:transform .2s;margin-top:3px}.item.open .arw{transform:rotate(90deg)}
+.body{display:none;padding:0 16px 16px;border-top:1px dashed var(--line)}
+.item.open .body{display:block}
+/* 以下详情样式与站点「查看」弹窗保持一致 */
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--blue-soft);color:var(--blue)}
+.op-badge{display:inline-flex;align-items:center;gap:5px;background:var(--card2);color:var(--oc);padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.op-badge i{width:6px;height:6px;border-radius:50%;background:var(--oc)}
+.chg{font-weight:700;font-size:11.5px;white-space:nowrap}
+.chg.new{color:var(--blue)}.chg.off{color:var(--muted)}.chg.mod{color:var(--warn)}
+.detail-meta{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 4px;font-size:11px;color:var(--muted)}
+.detail-meta .pill{font-size:10.5px}
+.note-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card2);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--blue)}
+.pub-table{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:9px;overflow:hidden;font-size:12.5px;margin-bottom:4px}
+.pub-table td{border:1px solid var(--border);padding:9px 13px;vertical-align:top;word-break:break-word}
+.pub-table td.k{width:120px;background:var(--card2);color:var(--muted);font-weight:600;white-space:nowrap}
+.pub-list{margin:0;padding:0;list-style:none}
+.pub-list li{position:relative;padding:7px 0 7px 15px;line-height:1.75;border-bottom:1px dashed var(--border);word-break:break-word}
+.pub-list li:last-child{border-bottom:0}
+.pub-list li::before{content:"";position:absolute;left:2px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--blue)}
+.pub-list li b{color:var(--blue);font-weight:700}
+.pub-group-title{font-size:12px;font-weight:700;color:var(--text);padding:14px 2px 7px;display:flex;align-items:center;gap:7px}
+.pub-group-title::before{content:"";width:3px;height:13px;background:var(--blue);border-radius:2px}
+.diff-table th{text-align:left;color:var(--muted);font-size:11.5px;font-weight:600;padding:8px 13px;border:1px solid var(--border);background:var(--card2)}
+.diff-before{color:#b91c1c;background:rgba(239,68,68,.06);word-break:break-word}
+.diff-after{color:#15803d;background:rgba(34,197,94,.06);word-break:break-word}
+.detail-note{padding:14px 18px;background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12.5px;line-height:1.95;white-space:pre-wrap}
+.detail-note .para{padding:3px 0}
+.detail-note .para+.para{border-top:1px dashed var(--border);margin-top:4px;padding-top:10px}
+.detail-note .lead{font-weight:700;color:var(--blue)}
+.nodiff{color:var(--muted);font-size:12.5px;padding:8px 0}
+.empty{text-align:center;color:var(--muted);padding:36px 0}
+.foot{text-align:center;color:var(--muted);font-size:11.5px;margin:22px 0}
+@media(max-width:600px){.wrap{padding:14px 10px}h1{font-size:17px}.bar input{min-width:100%}}
+</style></head><body><div class="wrap">
+<h1>本轮资费变动</h1>
+<div class="sub" id="sub"></div>
+<div class="bar">
+<input type="search" id="q" placeholder="搜索名称 / 编号 / 变更内容">
+<div class="tabs">
+<button class="tab on" data-k="">全部</button><button class="tab" data-k="新增">新增</button><button class="tab" data-k="修改">修改</button><button class="tab" data-k="下架">下架</button>
+</div><button class="zbtn" id="zBtn" title="只看 0 元业务">零元业务</button></div>
+<div class="cnt" id="cnt"></div>
+<div id="list"></div>
+<div class="foot">资费数据由自动任务定时抓取 · 实际资费以运营商官网为准</div>
+</div>
+<script>
+const ROWS=[{"kind":"修改","op":"中国电信","opColor":"#2f6fdb","province":"江西","name":"19元10G包月流量包","code":"24JX100223","price":"¥19","isZero":false,"date":"2026-11-26","summary":"有效期 到期后如双方无异议自动续约2年，以此类推 → 24个月，到期后如双方无异议自动续约2年，以此类推","changes":[{"label":"有效期","before":"到期后如双方无异议自动续约2年，以此类推","after":"24个月，到期后如双方无异议自动续约2年，以此类推"}],"full":{"base":[["方案编号","24JX100223"],["资费类型","加装包"],["归属","个人"],["资费标准","¥19/月"]],"resource":[["国内通用流量","10 GB"]],"rules":[["适用范围","适用于所有电信手机用户(时长版、达量降速套餐除外)"],["通用地区","江西"],["销售渠道","线下及线上渠道"],["上架日期","2021-08-03"],["下架日期","2039-12-31"],["有效期","24个月，到期后如双方无异议自动续约2年，以此类推"],["在网要求","无"],["退订方式","如需变更、退订，请拨打10000或前往电信营业厅咨询办理。"],["违约责任","无"]],"extra":[["其他说明","一、资费内容资费：19元/月，包含流量：10GB/月，适用于所有电信手机用户(时长版及、达量降速套餐除外)。二、业务使用规则(一)该流量包允许主副卡共享。(五)包月流量包不可重复订购，不同档位之间互斥。(六)包月流量包内流量及月功能费，不计入套餐外流量封顶及费用封顶值计算。(七)适用于达量提速：未被降速的用户订购后，等同于增加降速阈值，首次达到套餐所对应的流量阈值时不降速，包内流量使用完后降速；已降速用户订购后，恢复速率，流量使用完后再次降速；(八)适用于流量不清零规则。"]],"service":[{"lead":"19元/月，包含流量：","text":"10GB/月，全国通用流量，主副卡可共享"}],"note_full":"19元/月，包含流量：10GB/月，全国通用流量，主副卡可共享；有效期：24个月，到期后如双方无异议自动续约2年，以此类推；销售渠道：线下及线上渠道；上架日期：2021-08-03；下架日期：2039-12-31；退订方式：如需变更、退订，请拨打10000或前往电信营业厅咨询办理。；责任义务：无；在网要求：无；一、资费内容资费：19元/月，包含流量：10GB/月，适用于所有电信手机用户(时长版及、达量降速套餐除外)。二、业务使用规则(一)该流量包允许主副卡共享。(五)包月流量包不可重复订购，不同档位之间互斥。(六)包月流量包内流量及月功能费，不计入套餐外流量封顶及费用封顶值计算。(七)适用于达量提速：未被降速的用户订购后，等同于增加降速阈值，首次达到套餐所对应的流量阈值时不降速，包内流量使用完后降速；已降速用户订购后，恢复速率，流量使用完后再次降速；(八)适用于流量不清零规则。；适用范围：适用于所有电信手机用户(时长版、达量降速套餐除外)","source":"中国电信官网","date":"2026-11-26"}},{"kind":"修改","op":"中国电信","opColor":"#2f6fdb","province":"贵州","name":"天翼智屏用户标识合约36期","code":"26GZ100019","price":"—","isZero":false,"date":"2026-11-26","summary":"下架日期 2027-12-01 → 2026-11-26 · 有效期 有效期：36个自然月，即用户订购之月（当月为第1个月）起至第36… → 36个自然月，到期自动失效 · 退订方式 线下渠道可退订，退订次月生效。 → 线下渠道","changes":[{"label":"下架日期","before":"2027-12-01","after":"2026-11-26"},{"label":"有效期","before":"有效期：36个自然月，即用户订购之月（当月为第1个月）起至第36个月月底，到期自动失效。","after":"36个自然月，到期自动失效"},{"label":"退订方式","before":"线下渠道可退订，退订次月生效。","after":"线下渠道"}],"full":{"base":[["方案编号","26GZ100019"],["资费类型","营销活动"],["归属","个人"]],"resource":[],"rules":[["适用范围","适用于：天翼智屏标准版30元-36期、天翼智屏团购版20元-36期 用户订购。"],["通用地区","贵州"],["销售渠道","线下渠道"],["上架日期","2025-12-19"],["下架日期","2026-11-26"],["有效期","36个自然月，到期自动失效"],["在网要求","无"],["退订方式","线下渠道"],["违约责任","无"]],"extra":[["其他说明","仅作办理了天翼智屏礼包用户打标，无实际资费和服务，不单独销售。"]],"service":[{"lead":"","text":"有效期：36个自然月，到期自动失效；"},{"lead":"","text":"销售渠道：线下渠道；"},{"lead":"","text":"上架日期：2025-12-19；"},{"lead":"","text":"下架日期：2026-11-26；"},{"lead":"","text":"退订方式：线下渠道；"},{"lead":"","text":"责任义务：无；"},{"lead":"","text":"在网要求：无；"},{"lead":"","text":"其他说明：仅作办理了天翼智屏礼包用户打标，无实际资费和服务，不单独销售。；"},{"lead":"","text":"适用范围：适用于：天翼智屏标准版30元-36期、天翼智屏团购版20元-36期 用户订购。"}],"note_full":"","source":"中国电信官网","date":"2026-11-26"}},{"kind":"修改","op":"中国电信","opColor":"#2f6fdb","province":"贵州","name":"天翼智屏用户标识合约36期","code":"26GZ100017","price":"—","isZero":false,"date":"2026-11-26","summary":"下架日期 2027-04-01 → 2026-11-26 · 有效期 有效期：36个自然月，即用户订购之月（当月为第1个月）起至第36… → 36个自然月，到期自动失效 · 退订方式 线下渠道可退订，退订次月生效。 → 线下渠道","changes":[{"label":"下架日期","before":"2027-04-01","after":"2026-11-26"},{"label":"有效期","before":"有效期：36个自然月，即用户订购之月（当月为第1个月）起至第36个月月底，到期自动失效。","after":"36个自然月，到期自动失效"},{"label":"退订方式","before":"线下渠道可退订，退订次月生效。","after":"线下渠道"}],"full":{"base":[["方案编号","26GZ100017"],["资费类型","营销活动"],["归属","个人"]],"resource":[],"rules":[["适用范围","适用于：天翼智屏标准版30元-36期、天翼智屏团购版20元-36期 用户订购。"],["通用地区","贵州"],["销售渠道","线下渠道"],["上架日期","2026-01-14"],["下架日期","2026-11-26"],["有效期","36个自然月，到期自动失效"],["在网要求","无"],["退订方式","线下渠道"],["违约责任","无"]],"extra":[["其他说明","仅作办理了天翼智屏礼包用户打标，无实际资费和服务，不单独销售。"]],"service":[{"lead":"","text":"有效期：36个自然月，到期自动失效；"},{"lead":"","text":"销售渠道：线下渠道；"},{"lead":"","text":"上架日期：2026-01-14；"},{"lead":"","text":"下架日期：2026-11-26；"},{"lead":"","text":"退订方式：线下渠道；"},{"lead":"","text":"责任义务：无；"},{"lead":"","text":"在网要求：无；"},{"lead":"","text":"其他说明：仅作办理了天翼智屏礼包用户打标，无实际资费和服务，不单独销售。；"},{"lead":"","text":"适用范围：适用于：天翼智屏标准版30元-36期、天翼智屏团购版20元-36期 用户订购。"}],"note_full":"","source":"中国电信官网","date":"2026-11-26"}},{"kind":"修改","op":"中国电信","opColor":"#2f6fdb","province":"贵州","name":"天翼智屏标准版30元-36期","code":"26GZ100042","price":"¥30","isZero":false,"date":"2026-11-26","summary":"销售渠道 线下营业厅 → 线下渠道 · 下架日期 2027-02-01 → 2026-11-26 · 有效期 36个月，到期前双方无异议自动续展36个月 → 36个月，双方在有效期届满前未提出异议，自动续展36个月 · 退订方式 线下营业厅可退订，退订次月生效，退订当月费用不退还。 → 线下渠道可退订。退订当月费用不退还 · 违约责任 用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保… → 用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保… · 其他说明 销售品权益：天翼智屏终端*1，翼家智话、天翼超高清AI中屏会员、… → 天翼智屏*1，翼家智话、天翼超高清AI中屏会员、3天事件云回看、…","changes":[{"label":"销售渠道","before":"线下营业厅","after":"线下渠道"},{"label":"下架日期","before":"2027-02-01","after":"2026-11-26"},{"label":"有效期","before":"36个月，到期前双方无异议自动续展36个月","after":"36个月，双方在有效期届满前未提出异议，自动续展36个月"},{"label":"退订方式","before":"线下营业厅可退订，退订次月生效，退订当月费用不退还。","after":"线下渠道可退订。退订当月费用不退还"},{"label":"违约责任","before":"用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保号，需解除本合约。提前解除合约需按照合约发放的终端价值作为赔偿标准，计算公式：赔偿金额=合约发放…","after":"用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保号，需解除本合约。提前解约按照合约发放的终端价值作为赔偿标准，计算公式：赔偿金额=合约发放的终端…"},{"label":"其他说明","before":"销售品权益：天翼智屏终端*1，翼家智话、天翼超高清AI中屏会员、3天事件云回看、AI守护。","after":"天翼智屏*1，翼家智话、天翼超高清AI中屏会员、3天事件云回看、AI守护。"}],"full":{"base":[["方案编号","26GZ100042"],["资费类型","营销活动"],["归属","个人"],["资费标准","¥30/月"]],"resource":[],"rules":[["适用范围","适用于5G畅享系列套餐，要求套餐档位≥99元。"],["通用地区","贵州"],["销售渠道","线下渠道"],["上架日期","2026-02-03"],["下架日期","2026-11-26"],["有效期","36个月，双方在有效期届满前未提出异议，自动续展36个月"],["在网要求","36个月"],["退订方式","线下渠道可退订。退订当月费用不退还"],["违约责任","用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保号，需解除本合约。提前解约按照合约发放的终端价值作为赔偿标准，计算公式：赔偿金额=合约发放的终端价值576元。"]],"extra":[["其他说明","天翼智屏*1，翼家智话、天翼超高清AI中屏会员、3天事件云回看、AI守护。"]],"service":[{"lead":"","text":"有效期：36个月，双方在有效期届满前未提出异议，自动续展36个月；"},{"lead":"","text":"销售渠道：线下渠道；"},{"lead":"","text":"上架日期：2026-02-03；"},{"lead":"","text":"下架日期：2026-11-26；"},{"lead":"","text":"退订方式：线下渠道可退订。退订当月费用不退还；"},{"lead":"","text":"责任义务：用户在合约有效期届满前提出合约退订、离网、套餐内成员退出、停机保号，需解除本合约。提前解约按照合约发放的终端价值作为赔偿标准，计算公式：赔偿金额=合约发放的终端价值576元。；"},{"lead":"","text":"在网要求：36个月；"},{"lead":"","text":"其他说明：天翼智屏*1，翼家智话、天翼超高清AI中屏会员、3天事件云回看、AI守护。；"},{"lead":"","text":"适用范围：适用于5G畅享系列套餐，要求套餐档位≥99元。"}],"note_full":"","source":"中国电信官网","date":"2026-11-26"}}];
+const $=(s)=>document.querySelector(s);
+const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let kind='',zeroOnly=false;
+function initSub(){
+  const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
+  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-26 17:45（北京时间）';
+}
+function pubTable(rows){return rows&&rows.length?'<table class="pub-table">'+rows.map(r=>'<tr><td class="k">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'<div class="nodiff">无</div>';}
+function pubList(rows){return rows&&rows.length?'<ul class="pub-list">'+rows.map(r=>'<li><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</li>').join('')+'</ul>':'<div class="nodiff">无</div>';}
+function detail(h){
+  const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+  const meta='<div class="detail-meta"><span class="op-badge" style="--oc:'+esc(h.opColor)+'"><i></i>'+esc(h.op)+'</span>'+
+    '<span class="pill">'+esc(h.province)+'</span><span class="pill">'+esc(h.date)+'</span>'+
+    '<span class="chg '+c+'">'+esc(h.kind)+'</span>'+
+    (h.code?'<span class="pill">编号 <span class="note-code">'+esc(h.code)+'</span></span>':'')+'</div>';
+  const ch=h.changes||[];
+  const cmp=ch.length?'<div class="pub-group-title">本次变更</div><table class="pub-table diff-table"><thead><tr><th>变更字段</th><th>变更前</th><th>变更后</th></tr></thead><tbody>'+ch.map(x=>'<tr><td class="k">'+esc(x.label)+'</td><td class="diff-before">'+esc(x.before)+'</td><td class="diff-after">'+esc(x.after)+'</td></tr>').join('')+'</tbody></table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
+  const f=h.full||{};
+  const svc=(f.service&&f.service.length)?'<div class="detail-note">'+f.service.map(p=>'<div class="para">'+(p.lead?'<span class="lead">'+esc(p.lead)+'</span>':'')+esc(p.text)+'</div>').join('')+'</div>':'<div class="nodiff">暂无其他服务内容说明。</div>';
+  return meta+cmp+
+    '<div class="pub-group-title">完整资费展示</div>'+
+    '<div class="pub-group-title">基础信息</div>'+pubTable(f.base)+
+    '<div class="pub-group-title">资费内容</div>'+pubTable(f.resource)+
+    '<div class="pub-group-title">业务规则</div>'+pubList(f.rules)+
+    (f.extra&&f.extra.length?'<div class="pub-group-title">补充信息</div>'+pubList(f.extra):'')+
+    '<div class="pub-group-title">其他服务内容</div>'+svc+
+    (f.note_full?'<div class="pub-group-title">完整说明</div><div class="detail-note">'+esc(f.note_full)+'</div>':'')+
+    '<div class="nodiff">数据来源：'+esc(f.source)+' · 采集日期 '+esc(f.date)+'</div>';
+}
+function draw(){
+  const kw=$('#q').value.trim().toLowerCase();
+  const list=ROWS.filter(h=>{
+    if(kind&&h.kind!==kind)return false;
+    if(zeroOnly&&!h.isZero)return false;
+    if(!kw)return true;
+    const hay=(h.name+' '+h.code+' '+h.summary+' '+h.province).toLowerCase();
+    return kw.split(/\\s+/).every(t=>hay.indexOf(t)>=0);
+  });
+  $('#cnt').textContent='显示 '+list.length+' / '+ROWS.length+' 条 · 点开一条看变更前后对比';
+  if(!list.length){$('#list').innerHTML='<div class="empty">没有匹配的资费变化</div>';return;}
+  $('#list').innerHTML=list.map(h=>{
+    const c=h.kind==='新增'?'b-new':h.kind==='下架'?'b-off':'b-mod';
+    return '<div class="item"><div class="row"><span class="badge '+c+'">'+esc(h.kind)+'</span>'+
+      '<div class="main"><div class="title">'+esc(h.name)+(h.isZero?' <span class="price zero">0元</span>':'')+'</div>'+
+      '<div class="meta">'+esc(h.province)+(h.code?' · '+esc(h.code):'')+' · '+esc(h.date)+'</div>'+
+      '<div class="summary">'+esc(h.summary)+'</div></div><span class="arw">▶</span></div>'+
+      '<div class="body">'+detail(h)+'</div></div>';
+  }).join('');
+  document.querySelectorAll('.item .row').forEach(r=>r.addEventListener('click',()=>r.parentNode.classList.toggle('open')));
+}
+$('#q').addEventListener('input',draw);
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+  kind=b.dataset.k;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));draw();
+}));
+$('#zBtn').addEventListener('click',()=>{zeroOnly=!zeroOnly;$('#zBtn').classList.toggle('on',zeroOnly);draw();});
+initSub();draw();
+</script></body></html>
