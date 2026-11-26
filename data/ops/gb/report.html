@@ -73,13 +73,13 @@ h1{font-size:19px;margin:0 0 3px;font-weight:700}
 <div class="foot">资费数据由自动任务定时抓取 · 实际资费以运营商官网为准</div>
 </div>
 <script>
-const ROWS=[{"kind":"下架","op":"中国广电","opColor":"#7c3aed","province":"上海","name":"存量用户回馈30GB流量包(单次)","code":"26SH500037","price":"0元","isZero":true,"date":"2026-11-26","summary":"已下架 · 原 0元/月","changes":[],"full":{"base":[["方案编号","26SH500037"],["资费类型","套餐"],["归属","个人"],["资费标准","0元/月"]],"resource":[["国内通话","0"],["国内通用流量","30 GB"],["定向流量","0"],["短信","0"]],"rules":[["适用范围","限上海地区关注东方有线企业微信用户"],["通用地区","上海"],["销售渠道","线下渠道"],["上架日期","2026-11-20"],["下架日期","2026-12-31"],["有效期","订购当月有效。"],["退订方式","登录中国广电APP营业厅或小程序办理，也可咨询10099客服热线或本地营业厅。"]],"extra":[["其他说明","可领取1次国内流量30GB，不可重复领取 | 订购后立即生效，当月月底失效，主副卡可共享，当月未使用完不可结转至次月;若用户处于异常状态(如欠费、挂失、停机、证件业务信息异常等)，将无法完成领取及发放，不予补发。"]],"service":[{"lead":"","text":"短信：0；"},{"lead":"","text":"定向流量：0；"},{"lead":"","text":"有效期：订购当月有效。；"},{"lead":"","text":"销售渠道：线下渠道；"},{"lead":"","text":"上架日期：2026-11-20；"},{"lead":"","text":"下架日期：2026-12-31；"},{"lead":"","text":"退订方式：登录中国广电APP营业厅或小程序办理，也可咨询10099客服热线或本地营业厅。；"},{"lead":"","text":"其他说明：可领取1次国内流量30GB，不可重复领取 | 订购后立即生效，当月月底失效，主副卡可共享，当月未使用完不可结转至次月;"},{"lead":"","text":"若用户处于异常状态(如欠费、挂失、停机、证件业务信息异常等)，将无法完成领取及发放，不予补发。；"},{"lead":"","text":"适用范围：限上海地区关注东方有线企业微信用户"}],"note_full":"","source":"中国广电官网","date":"2026-11-26"}}];
+const ROWS=[];
 const $=(s)=>document.querySelector(s);
 const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let kind='',zeroOnly=false;
 function initSub(){
   const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
-  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-26 01:43（北京时间）';
+  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-26 09:41（北京时间）';
 }
 function pubTable(rows){return rows&&rows.length?'<table class="pub-table">'+rows.map(r=>'<tr><td class="k">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'<div class="nodiff">无</div>';}
 function pubList(rows){return rows&&rows.length?'<ul class="pub-list">'+rows.map(r=>'<li><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</li>').join('')+'</ul>':'<div class="nodiff">无</div>';}
