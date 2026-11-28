@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>本轮资费变动 · 全部明细 · 其他·广电</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--card2:#fafbfc;--ink:#1f2937;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--border:#e5e7eb;--blue:#2563eb;--blue-soft:#eff6ff;--red:#dc2626;--green:#059669;--down:#0f9d6e;--warn:#b45309}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:800px;margin:0 auto;padding:20px 16px}
+h1{font-size:19px;margin:0 0 3px;font-weight:700}
+.sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.sub b{color:var(--ink)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.bar input{flex:1;min-width:150px;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;background:var(--card);color:var(--ink)}
+.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:3px}
+.tab{border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.tab.on{background:var(--blue);color:#fff}
+.zbtn{border:1px solid var(--line);background:var(--card);color:var(--muted);padding:6px 11px;border-radius:9px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.zbtn:hover{border-color:var(--blue);color:var(--blue)}.zbtn.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+.price{font-weight:750;font-size:13.5px;font-variant-numeric:tabular-nums}.price.zero{color:var(--down)}
+.cnt{color:var(--muted);font-size:12px;margin:0 0 10px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:7px;overflow:hidden}
+.row{padding:11px 14px;cursor:pointer;display:flex;gap:9px;align-items:flex-start}
+.row:hover{background:#f9fafb}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap;margin-top:1px}
+.b-new{background:#dcfce7;color:var(--green)}.b-mod{background:#dbeafe;color:var(--blue)}.b-off{background:#fee2e2;color:var(--red)}
+.main{flex:1;min-width:0}
+.title{font-weight:600;font-size:14px;word-break:break-word}
+.meta{color:var(--muted);font-size:11.5px;margin-top:2px}
+.summary{color:#374151;font-size:12.5px;margin-top:4px;word-break:break-word}
+.arw{color:var(--muted);font-size:11px;transition:transform .2s;margin-top:3px}.item.open .arw{transform:rotate(90deg)}
+.body{display:none;padding:0 16px 16px;border-top:1px dashed var(--line)}
+.item.open .body{display:block}
+/* 以下详情样式与站点「查看」弹窗保持一致 */
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--blue-soft);color:var(--blue)}
+.op-badge{display:inline-flex;align-items:center;gap:5px;background:var(--card2);color:var(--oc);padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.op-badge i{width:6px;height:6px;border-radius:50%;background:var(--oc)}
+.chg{font-weight:700;font-size:11.5px;white-space:nowrap}
+.chg.new{color:var(--blue)}.chg.off{color:var(--muted)}.chg.mod{color:var(--warn)}
+.detail-meta{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 4px;font-size:11px;color:var(--muted)}
+.detail-meta .pill{font-size:10.5px}
+.note-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--card2);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--blue)}
+.pub-table{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:9px;overflow:hidden;font-size:12.5px;margin-bottom:4px}
+.pub-table td{border:1px solid var(--border);padding:9px 13px;vertical-align:top;word-break:break-word}
+.pub-table td.k{width:120px;background:var(--card2);color:var(--muted);font-weight:600;white-space:nowrap}
+.pub-list{margin:0;padding:0;list-style:none}
+.pub-list li{position:relative;padding:7px 0 7px 15px;line-height:1.75;border-bottom:1px dashed var(--border);word-break:break-word}
+.pub-list li:last-child{border-bottom:0}
+.pub-list li::before{content:"";position:absolute;left:2px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--blue)}
+.pub-list li b{color:var(--blue);font-weight:700}
+.pub-group-title{font-size:12px;font-weight:700;color:var(--text);padding:14px 2px 7px;display:flex;align-items:center;gap:7px}
+.pub-group-title::before{content:"";width:3px;height:13px;background:var(--blue);border-radius:2px}
+.diff-table th{text-align:left;color:var(--muted);font-size:11.5px;font-weight:600;padding:8px 13px;border:1px solid var(--border);background:var(--card2)}
+.diff-before{color:#b91c1c;background:rgba(239,68,68,.06);word-break:break-word}
+.diff-after{color:#15803d;background:rgba(34,197,94,.06);word-break:break-word}
+.detail-note{padding:14px 18px;background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12.5px;line-height:1.95;white-space:pre-wrap}
+.detail-note .para{padding:3px 0}
+.detail-note .para+.para{border-top:1px dashed var(--border);margin-top:4px;padding-top:10px}
+.detail-note .lead{font-weight:700;color:var(--blue)}
+.nodiff{color:var(--muted);font-size:12.5px;padding:8px 0}
+.empty{text-align:center;color:var(--muted);padding:36px 0}
+.foot{text-align:center;color:var(--muted);font-size:11.5px;margin:22px 0}
+@media(max-width:600px){.wrap{padding:14px 10px}h1{font-size:17px}.bar input{min-width:100%}}
+</style></head><body><div class="wrap">
+<h1>本轮资费变动</h1>
+<div class="sub" id="sub"></div>
+<div class="bar">
+<input type="search" id="q" placeholder="搜索名称 / 编号 / 变更内容">
+<div class="tabs">
+<button class="tab on" data-k="">全部</button><button class="tab" data-k="新增">新增</button><button class="tab" data-k="修改">修改</button><button class="tab" data-k="下架">下架</button>
+</div><button class="zbtn" id="zBtn" title="只看 0 元业务">零元业务</button></div>
+<div class="cnt" id="cnt"></div>
+<div id="list"></div>
+<div class="foot">资费数据由自动任务定时抓取 · 实际资费以运营商官网为准</div>
+</div>
+<script>
+const ROWS=[];
+const $=(s)=>document.querySelector(s);
+const esc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let kind='',zeroOnly=false;
+function initSub(){
+  const c={新增:0,修改:0,下架:0};ROWS.forEach(h=>c[h.kind]=(c[h.kind]||0)+1);
+  $('#sub').innerHTML='共 <b>'+ROWS.length+'</b> 条 · 新增 <b>'+c.新增+'</b> · 修改 <b>'+c.修改+'</b> · 下架 <b>'+c.下架+'</b> · 生成于 2026-11-28 17:22（北京时间）';
+}
+function pubTable(rows){return rows&&rows.length?'<table class="pub-table">'+rows.map(r=>'<tr><td class="k">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>').join('')+'</table>':'<div class="nodiff">无</div>';}
+function pubList(rows){return rows&&rows.length?'<ul class="pub-list">'+rows.map(r=>'<li><b>'+esc(r[0])+'：</b>'+esc(r[1])+'</li>').join('')+'</ul>':'<div class="nodiff">无</div>';}
+function detail(h){
+  const c=h.kind==='新增'?'new':h.kind==='下架'?'off':'mod';
+  const meta='<div class="detail-meta"><span class="op-badge" style="--oc:'+esc(h.opColor)+'"><i></i>'+esc(h.op)+'</span>'+
+    '<span class="pill">'+esc(h.province)+'</span><span class="pill">'+esc(h.date)+'</span>'+
+    '<span class="chg '+c+'">'+esc(h.kind)+'</span>'+
+    (h.code?'<span class="pill">编号 <span class="note-code">'+esc(h.code)+'</span></span>':'')+'</div>';
+  const ch=h.changes||[];
+  const cmp=ch.length?'<div class="pub-group-title">本次变更</div><table class="pub-table diff-table"><thead><tr><th>变更字段</th><th>变更前</th><th>变更后</th></tr></thead><tbody>'+ch.map(x=>'<tr><td class="k">'+esc(x.label)+'</td><td class="diff-before">'+esc(x.before)+'</td><td class="diff-after">'+esc(x.after)+'</td></tr>').join('')+'</tbody></table>':'<div class="nodiff">该项为详情调整，具体以运营商官网为准。</div>';
+  const f=h.full||{};
+  const svc=(f.service&&f.service.length)?'<div class="detail-note">'+f.service.map(p=>'<div class="para">'+(p.lead?'<span class="lead">'+esc(p.lead)+'</span>':'')+esc(p.text)+'</div>').join('')+'</div>':'<div class="nodiff">暂无其他服务内容说明。</div>';
+  return meta+cmp+
+    '<div class="pub-group-title">完整资费展示</div>'+
+    '<div class="pub-group-title">基础信息</div>'+pubTable(f.base)+
+    '<div class="pub-group-title">资费内容</div>'+pubTable(f.resource)+
+    '<div class="pub-group-title">业务规则</div>'+pubList(f.rules)+
+    (f.extra&&f.extra.length?'<div class="pub-group-title">补充信息</div>'+pubList(f.extra):'')+
+    '<div class="pub-group-title">其他服务内容</div>'+svc+
+    (f.note_full?'<div class="pub-group-title">完整说明</div><div class="detail-note">'+esc(f.note_full)+'</div>':'')+
+    '<div class="nodiff">数据来源：'+esc(f.source)+' · 采集日期 '+esc(f.date)+'</div>';
+}
+function draw(){
+  const kw=$('#q').value.trim().toLowerCase();
+  const list=ROWS.filter(h=>{
+    if(kind&&h.kind!==kind)return false;
+    if(zeroOnly&&!h.isZero)return false;
+    if(!kw)return true;
+    const hay=(h.name+' '+h.code+' '+h.summary+' '+h.province).toLowerCase();
+    return kw.split(/\\s+/).every(t=>hay.indexOf(t)>=0);
+  });
+  $('#cnt').textContent='显示 '+list.length+' / '+ROWS.length+' 条 · 点开一条看变更前后对比';
+  if(!list.length){$('#list').innerHTML='<div class="empty">没有匹配的资费变化</div>';return;}
+  $('#list').innerHTML=list.map(h=>{
+    const c=h.kind==='新增'?'b-new':h.kind==='下架'?'b-off':'b-mod';
+    return '<div class="item"><div class="row"><span class="badge '+c+'">'+esc(h.kind)+'</span>'+
+      '<div class="main"><div class="title">'+esc(h.name)+(h.isZero?' <span class="price zero">0元</span>':'')+'</div>'+
+      '<div class="meta">'+esc(h.province)+(h.code?' · '+esc(h.code):'')+' · '+esc(h.date)+'</div>'+
+      '<div class="summary">'+esc(h.summary)+'</div></div><span class="arw">▶</span></div>'+
+      '<div class="body">'+detail(h)+'</div></div>';
+  }).join('');
+  document.querySelectorAll('.item .row').forEach(r=>r.addEventListener('click',()=>r.parentNode.classList.toggle('open')));
+}
+$('#q').addEventListener('input',draw);
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+  kind=b.dataset.k;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));draw();
+}));
+$('#zBtn').addEventListener('click',()=>{zeroOnly=!zeroOnly;$('#zBtn').classList.toggle('on',zeroOnly);draw();});
+initSub();draw();
+</script></body></html>
